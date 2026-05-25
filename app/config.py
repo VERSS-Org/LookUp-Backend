@@ -2,6 +2,7 @@ import json
 import os
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -27,6 +28,19 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = ENVIRONMENT == "development" or os.getenv("ENABLE_SWAGGER", "false").lower() == "true"
     SWAGGER_ALWAYS_ON: bool = os.getenv("ENABLE_SWAGGER", "false").lower() == "true"
+
+    @field_validator("DEBUG", "SWAGGER_ALWAYS_ON", mode="before")
+    @classmethod
+    def parse_bool_flags(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y", "on", "debug", "development"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "off", "release", "prod", "production"}:
+                return False
+        return value
 
     class Config:
         env_file = ".env"

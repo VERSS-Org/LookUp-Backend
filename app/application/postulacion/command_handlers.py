@@ -9,6 +9,7 @@ from app.domain.postulacion.entities import (
     EstadoPublicacionEnum
 )
 from app.domain.postulacion.repositories import PostulacionRepository, PuestoPostulacionRepository
+from app.domain.puesto.entities import EstadoPuestoEnum
 from app.domain.puesto.repositories import PuestoRepository
 
 
@@ -38,10 +39,24 @@ class PostularHandler(CommandHandler):
         """
         # Validar que el puesto existe y está publicado
         puesto = self.puesto_repository.obtener_por_id(command.puesto_id)
-        if not puesto or puesto.puesto.estado != "abierto":
-            raise ValueError("El puesto no existe o no está disponible para postulación")
+        estado_puesto = (
+            puesto.puesto.estado.value
+            if puesto and hasattr(puesto.puesto.estado, "value")
+            else puesto.puesto.estado if puesto else None
+        )
+        if not puesto or estado_puesto != EstadoPuestoEnum.ABIERTO.value:
+            raise ValueError("El puesto no existe o no esta disponible para postulacion")
         
         # Crear nueva postulación
+        postulaciones_existentes = self.postulacion_repository.obtener_por_candidato(
+            command.candidato_id
+        )
+        if any(
+            postulacion.postulacion.puesto_id == command.puesto_id
+            for postulacion in postulaciones_existentes
+        ):
+            raise ValueError("Ya existe una postulacion para este puesto")
+
         postulacion = Postulacion(
             candidato_id=command.candidato_id,
             puesto_id=command.puesto_id,
