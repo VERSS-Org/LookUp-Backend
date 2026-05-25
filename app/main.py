@@ -48,11 +48,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(postulacion_router, prefix="/api", tags=["Postulación"])
-app.include_router(contacto_router, prefix="/api", tags=["Contacto"])
-app.include_router(metrica_router, prefix="/api", tags=["Métricas"])
-app.include_router(puesto_router, prefix="/api", tags=["Puesto"])
-app.include_router(iam_router, prefix="/api", tags=["IAM"])
+app.include_router(postulacion_router, prefix="/api")
+app.include_router(contacto_router, prefix="/api")
+app.include_router(metrica_router, prefix="/api")
+app.include_router(puesto_router, prefix="/api")
+app.include_router(iam_router, prefix="/api")
 
 @app.get("/", tags=["Root"])
 async def root():

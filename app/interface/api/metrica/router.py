@@ -21,7 +21,7 @@ from .schemas import (
     ContadorResponse
 )
 
-router = APIRouter(prefix="/metricas", tags=["Metricas"])
+router = APIRouter(prefix="/metricas", tags=["Métricas"])
 
 
 def _require_metric_owner(cuenta_id: UUID, usuario: dict) -> None:
