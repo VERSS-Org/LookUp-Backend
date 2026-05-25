@@ -32,21 +32,28 @@ class EstadoPostulacion:
             EstadoPostulacionEnum.PENDIENTE: [
                 EstadoPostulacionEnum.EN_REVISION, 
                 EstadoPostulacionEnum.RECHAZADO,
+                EstadoPostulacionEnum.ENTREVISTA,
+                EstadoPostulacionEnum.ACEPTADO,
+                EstadoPostulacionEnum.OFERTA,
                 EstadoPostulacionEnum.RECHAZO
             ],
             EstadoPostulacionEnum.EN_REVISION: [
                 EstadoPostulacionEnum.ACEPTADO,
                 EstadoPostulacionEnum.RECHAZADO,
                 EstadoPostulacionEnum.ENTREVISTA, 
+                EstadoPostulacionEnum.OFERTA,
                 EstadoPostulacionEnum.RECHAZO
             ],
             EstadoPostulacionEnum.ACEPTADO: [
                 EstadoPostulacionEnum.ENTREVISTA,
-                EstadoPostulacionEnum.OFERTA
+                EstadoPostulacionEnum.OFERTA,
+                EstadoPostulacionEnum.RECHAZADO,
+                EstadoPostulacionEnum.RECHAZO
             ],
             EstadoPostulacionEnum.RECHAZADO: [],  # Estado final no permite cambios
             EstadoPostulacionEnum.ENTREVISTA: [
                 EstadoPostulacionEnum.OFERTA, 
+                EstadoPostulacionEnum.ACEPTADO,
                 EstadoPostulacionEnum.RECHAZADO,
                 EstadoPostulacionEnum.RECHAZO
             ],

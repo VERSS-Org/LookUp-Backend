@@ -160,19 +160,41 @@ async def obtener_puesto(puesto_id: str = Path(..., title="ID del puesto")):
 @router.get("/", response_model=List[PuestoResponse])
 async def listar_puestos(
     empresa_id: Optional[str] = Query(None, title="ID de la empresa"),
-    estado: Optional[EstadoPuestoEnum] = Query(None, title="Estado del puesto (abierto/cerrado)")
+    estado: Optional[EstadoPuestoEnum] = Query(None, title="Estado del puesto (abierto/cerrado)"),
+    usuario: dict = Depends(obtener_usuario_actual)
 ):
     """
-    Lista puestos con filtros publicos opcionales.
+    Lista puestos respetando el rol autenticado.
     """
     try:
+        empresa_uuid = UUID(empresa_id) if empresa_id else None
+        estado_filtro = estado
+
+        if usuario.get("rol") == "empresa":
+            if empresa_uuid is None:
+                empresa_uuid = UUID(usuario["cuenta_id"])
+            elif str(empresa_uuid) != str(usuario.get("cuenta_id")):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No puedes listar puestos de otra empresa"
+                )
+        elif usuario.get("rol") == "postulante":
+            estado_filtro = EstadoPuestoEnum.ABIERTO
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rol no autorizado para listar puestos"
+            )
+
         puesto_repository = PuestoRepositoryImpl()
         handler = ListarPuestosQueryHandler(puesto_repository)
         query = ListarPuestosQuery(
-            empresa_id=UUID(empresa_id) if empresa_id else None,
-            estado=estado
+            empresa_id=empresa_uuid,
+            estado=estado_filtro
         )
         return [_puesto_response(resultado) for resultado in handler.handle(query)]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
