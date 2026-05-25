@@ -17,7 +17,7 @@ from .schemas import (
     EstadoUpdate, EstadoPostulacionEnum
 )
 
-router = APIRouter(prefix="/postulacion", tags=["Postulacion"])
+router = APIRouter(prefix="/postulacion", tags=["Postulación"])
 postulacion_service = PostulacionService()
 
 
