@@ -6,6 +6,9 @@ from datetime import datetime
 from app.application.contacto.command_handlers import (
     EnviarFeedbackCommandHandler, EnviarFeedbackCommand
 )
+from app.application.postulacion.command_handlers import (
+    ActualizarEstadoCommand, ActualizarEstadoPostulacionHandler
+)
 from app.application.contacto.query_handlers import (
     ObtenerContactoQueryHandler, ObtenerContactoQuery,
     ObtenerContactosPostulacionQueryHandler, ObtenerContactosPostulacionQuery
@@ -73,6 +76,14 @@ def _require_postulacion_access(postulacion, usuario: dict) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Rol no autorizado para contactos"
     )
+
+
+def _estado_desde_feedback(tipo_feedback: str) -> Optional[str]:
+    if tipo_feedback == "aprobacion":
+        return "oferta"
+    if tipo_feedback == "rechazo":
+        return "rechazo"
+    return None
 
 
 @router.post("/", response_model=ContactoResponse, status_code=status.HTTP_201_CREATED)
@@ -186,12 +197,26 @@ async def enviar_feedback(
                 detail="No puedes enviar feedback como otra empresa"
             )
 
-        postulacion = _obtener_postulacion_o_404(UUID(feedback.postulacion_id))
+        postulacion_repository = PostulacionRepositoryImpl()
+        postulacion = postulacion_repository.obtener_por_id(UUID(feedback.postulacion_id))
+        if not postulacion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Postulacion con ID {feedback.postulacion_id} no encontrada"
+            )
+
         _require_empresa_owner(postulacion, usuario)
         if str(postulacion.postulacion.candidato_id) != feedback.cuenta_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El candidato no corresponde a la postulacion"
+            )
+
+        nuevo_estado = _estado_desde_feedback(feedback.tipo_feedback.value)
+        if nuevo_estado and not postulacion.estado.es_valido(nuevo_estado):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La postulacion no permite ese feedback en su estado actual"
             )
 
         contacto_repository = ContactoRepositoryImpl()
@@ -205,6 +230,18 @@ async def enviar_feedback(
             motivo_rechazo=feedback.motivo_rechazo
         )
         resultado = handler.handle(comando)
+
+        if nuevo_estado:
+            estado_handler = ActualizarEstadoPostulacionHandler(postulacion_repository)
+            estado_actualizado = estado_handler.handle(ActualizarEstadoCommand(
+                postulacion_id=UUID(feedback.postulacion_id),
+                nuevo_estado=nuevo_estado
+            ))
+            if not estado_actualizado:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No se pudo actualizar el estado desde el feedback"
+                )
 
         return FeedbackResponse(
             feedback_id=str(resultado),
