@@ -1,5 +1,5 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 
 from app.infrastructure.iam.security import TokenManager
@@ -10,7 +10,7 @@ from uuid import UUID
 security = HTTPBearer()
 
 
-async def obtener_usuario_actual(credentials: HTTPAuthCredentials = Depends(security)) -> dict:
+async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """
     Dependencia para obtener el usuario actual a partir del token JWT.
     
@@ -59,7 +59,9 @@ async def obtener_usuario_actual(credentials: HTTPAuthCredentials = Depends(secu
             "estado": cuenta_data["estado"]
         }
     
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Error al verificar usuario",
