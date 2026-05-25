@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
@@ -28,13 +28,22 @@ class ContactoCreate(BaseModel):
     fecha_contacto: Optional[datetime] = None
 
 
+class FeedbackResumen(BaseModel):
+    tipo: str
+    mensaje: Optional[str] = None
+    motivo_rechazo: Optional[str] = None
+
+
 class ContactoResponse(BaseModel):
     contacto_id: str
     postulacion_id: str
-    tipo_contacto: str
-    contenido: str
-    fecha_contacto: datetime
-    leido: bool
+    empresa_id: str
+    cuenta_id: str
+    tipo_mensaje: str
+    motivo_rechazo: Optional[str] = None
+    fecha_hora: datetime
+    ultimo_feedback: Optional[FeedbackResumen] = None
+    feedbacks: List[FeedbackResumen] = Field(default_factory=list)
 
 
 class ContactoUpdate(BaseModel):

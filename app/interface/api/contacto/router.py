@@ -32,11 +32,25 @@ async def crear_contacto(contacto: ContactoCreate):
 
 @router.get("/{contacto_id}", response_model=ContactoResponse)
 async def obtener_contacto(contacto_id: str = Path(..., title="ID del contacto")):
-    # Desactivado temporalmente: handler no implementado
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Este endpoint está temporalmente no disponible"
-    )
+    try:
+        contacto_repository = ContactoRepositoryImpl()
+        handler = ObtenerContactoQueryHandler(contacto_repository)
+        resultado = handler.handle(ObtenerContactoQuery(contacto_id=UUID(contacto_id)))
+
+        if not resultado:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Contacto con ID {contacto_id} no encontrado"
+            )
+
+        return ContactoResponse(**resultado)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 @router.get("/", response_model=List[ContactoResponse])
@@ -45,11 +59,33 @@ async def listar_contactos(
     tipo_contacto: Optional[TipoContactoEnum] = Query(None, title="Tipo de contacto"),
     leido: Optional[bool] = Query(None, title="Estado de lectura")
 ):
-    # Desactivado temporalmente: handler no implementado
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Este endpoint está temporalmente no disponible"
-    )
+    if not postulacion_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="postulacion_id es requerido"
+        )
+
+    try:
+        contacto_repository = ContactoRepositoryImpl()
+        handler = ObtenerContactosPostulacionQueryHandler(contacto_repository)
+        resultados = handler.handle(
+            ObtenerContactosPostulacionQuery(postulacion_id=UUID(postulacion_id))
+        )
+
+        if tipo_contacto:
+            resultados = [
+                contacto for contacto in resultados
+                if contacto.get("tipo_mensaje") == tipo_contacto.value
+            ]
+
+        return [ContactoResponse(**resultado) for resultado in resultados]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 @router.patch("/{contacto_id}", response_model=ContactoResponse)
