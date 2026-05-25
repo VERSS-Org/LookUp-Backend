@@ -103,10 +103,18 @@ class VerificarTokenQueryHandler(QueryHandler):
         
         if not payload:
             return None
+
+        cuenta_id = payload.get("sub")
+        if cuenta_id:
+            try:
+                if not self.cuenta_repository.obtener_por_id(UUID(cuenta_id)):
+                    return None
+            except (TypeError, ValueError):
+                return None
         
         return {
             "valido": True,
-            "sub": payload.get("sub"),
+            "cuenta_id": cuenta_id,
             "email": payload.get("email"),
             "rol": payload.get("rol"),
             "tipo": payload.get("tipo")

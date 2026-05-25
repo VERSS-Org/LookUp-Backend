@@ -83,7 +83,7 @@ class ContactoRepositoryImpl(ContactoRepository):
                 postulacion_id=UUID(contacto_db.postulacion_id),
                 empresa_id=UUID(contacto_db.empresa_id),
                 cuenta_id=UUID(contacto_db.cuenta_id),
-                tipo_mensaje=contacto_db.tipo_mensaje,
+                tipo_mensaje=TipoMensajeEnum(contacto_db.tipo_mensaje),
                 motivo_rechazo=contacto_db.motivo_rechazo,
                 fecha_hora=contacto_db.fecha_hora
             )
@@ -91,7 +91,7 @@ class ContactoRepositoryImpl(ContactoRepository):
             lista_feedback = []
             for feedback_db in contacto_db.feedbacks:
                 feedback = Feedback(
-                    tipo=feedback_db.tipo,
+                    tipo=TipoFeedbackEnum(feedback_db.tipo),
                     mensaje_texto=feedback_db.mensaje_texto,
                     motivo_rechazo=feedback_db.motivo_rechazo
                 )

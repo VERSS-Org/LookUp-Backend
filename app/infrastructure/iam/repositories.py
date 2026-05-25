@@ -33,6 +33,10 @@ class CuentaRepositoryImpl(CuentaRepository):
                 # Actualizar
                 cuenta_existente.email = cuenta.credencial.email
                 cuenta_existente.hash_password = cuenta.credencial.hash_password
+                cuenta_existente.nombre_completo = cuenta.nombre_completo
+                cuenta_existente.carrera = cuenta.carrera
+                cuenta_existente.telefono = cuenta.telefono
+                cuenta_existente.ciudad = cuenta.ciudad
                 cuenta_existente.rol = cuenta.rol
                 cuenta_existente.estado = cuenta.estado
                 cuenta_existente.fecha_actualizacion = cuenta.fecha_actualizacion

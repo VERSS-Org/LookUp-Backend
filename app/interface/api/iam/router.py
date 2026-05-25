@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional
+from datetime import datetime
 from uuid import UUID
 
 from app.application.iam.command_handlers import (
@@ -16,15 +17,24 @@ from app.application.iam.query_handlers import (
 )
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
 from app.infrastructure.iam.security import TokenManager
+from app.interface.api.dependencies import obtener_usuario_actual
 
 from .schemas import (
     CrearCuentaRequest, LoginRequest, VerificarCuentaRequest,
-    RefreshTokenRequest, CambiarPasswordRequest,
+    RefreshTokenRequest, CambiarPasswordRequest, CuentaUpdateRequest,
     TokenResponse, CuentaResponse, VerificacionResponse,
     MensajeResponse, TokenVerificationResponse
 )
 
 router = APIRouter(prefix="/iam", tags=["IAM"])
+
+
+def _validar_misma_cuenta(cuenta_id: str, usuario: dict) -> None:
+    if str(usuario.get("cuenta_id")) != str(cuenta_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para modificar esta cuenta"
+        )
 
 
 @router.post("/registrar", response_model=CuentaResponse, status_code=status.HTTP_201_CREATED)
@@ -69,6 +79,8 @@ async def registrar_cuenta(request: CrearCuentaRequest):
             fecha_primer_acceso=cuenta_data['fecha_primer_acceso']
         )
     
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -228,7 +240,8 @@ async def refresh_token(request: RefreshTokenRequest):
 @router.post("/cambiar-password", response_model=MensajeResponse, status_code=status.HTTP_200_OK)
 async def cambiar_password(
     request: CambiarPasswordRequest,
-    cuenta_id: str
+    cuenta_id: Optional[str] = None,
+    usuario: dict = Depends(obtener_usuario_actual)
 ):
     """
     Cambia la contraseña del usuario autenticado.
@@ -238,11 +251,14 @@ async def cambiar_password(
     - **cuenta_id**: ID de la cuenta (desde header o parámetro)
     """
     try:
+        cuenta_objetivo = cuenta_id or usuario["cuenta_id"]
+        _validar_misma_cuenta(cuenta_objetivo, usuario)
+
         repository = CuentaRepositoryImpl()
         handler = CambiarPasswordHandler(repository)
         
         command = CambiarPasswordCommand(
-            cuenta_id=UUID(cuenta_id),
+            cuenta_id=UUID(cuenta_objetivo),
             password_actual=request.password_actual,
             password_nuevo=request.password_nuevo
         )
@@ -254,6 +270,8 @@ async def cambiar_password(
             exito=True
         )
     
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -263,6 +281,33 @@ async def cambiar_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error al cambiar contraseña: {str(e)}"
+        )
+
+
+@router.get("/me", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
+async def obtener_mi_cuenta(usuario: dict = Depends(obtener_usuario_actual)):
+    """
+    Obtiene la cuenta asociada al token actual.
+    """
+    try:
+        repository = CuentaRepositoryImpl()
+        handler = ObtenerCuentaQueryHandler(repository)
+        cuenta_data = handler.handle(ObtenerCuentaQuery(cuenta_id=UUID(usuario["cuenta_id"])))
+
+        if not cuenta_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cuenta no encontrada"
+            )
+
+        return CuentaResponse(**cuenta_data)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al obtener cuenta: {str(e)}"
         )
 
 
@@ -294,6 +339,57 @@ async def obtener_cuenta(cuenta_id: str):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error al obtener cuenta: {str(e)}"
+        )
+
+
+@router.patch("/cuenta/{cuenta_id}", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
+async def actualizar_cuenta(
+    request: CuentaUpdateRequest,
+    cuenta_id: str,
+    usuario: dict = Depends(obtener_usuario_actual)
+):
+    """
+    Actualiza los datos editables de la cuenta autenticada.
+    """
+    try:
+        _validar_misma_cuenta(cuenta_id, usuario)
+
+        repository = CuentaRepositoryImpl()
+        cuenta_aggregate = repository.obtener_por_id(UUID(cuenta_id))
+
+        if not cuenta_aggregate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cuenta no encontrada: {cuenta_id}"
+            )
+
+        updates = (
+            request.model_dump(exclude_unset=True)
+            if hasattr(request, "model_dump")
+            else request.dict(exclude_unset=True)
+        )
+        cuenta = cuenta_aggregate.cuenta
+        for campo, valor in updates.items():
+            setattr(cuenta, campo, valor)
+        cuenta.fecha_actualizacion = datetime.now()
+
+        repository.guardar(cuenta_aggregate)
+
+        handler = ObtenerCuentaQueryHandler(repository)
+        cuenta_data = handler.handle(ObtenerCuentaQuery(cuenta_id=UUID(cuenta_id)))
+        return CuentaResponse(**cuenta_data)
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al actualizar cuenta: {str(e)}"
         )
 
 

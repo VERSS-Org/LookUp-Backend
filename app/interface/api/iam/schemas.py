@@ -45,6 +45,14 @@ class CambiarPasswordRequest(BaseModel):
     password_nuevo: str
 
 
+class CuentaUpdateRequest(BaseModel):
+    """Solicitud para actualizar datos editables de una cuenta"""
+    nombre_completo: Optional[str] = None
+    carrera: Optional[str] = None
+    telefono: Optional[str] = None
+    ciudad: Optional[str] = None
+
+
 # Esquemas de respuesta
 class TokenResponse(BaseModel):
     """Respuesta con token"""
@@ -88,4 +96,6 @@ class TokenVerificationResponse(BaseModel):
     """Respuesta de verificación de token"""
     valido: bool
     cuenta_id: Optional[str] = None
+    email: Optional[str] = None
     rol: Optional[str] = None
+    tipo: Optional[str] = None
