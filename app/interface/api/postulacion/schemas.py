@@ -48,6 +48,7 @@ class CandidatoInfoResponse(BaseModel):
 class PuestoInfoResponse(BaseModel):
     """Información del puesto para enriquecer postulación"""
     puesto_id: str
+    empresa_id: Optional[str] = None
     titulo: str
     descripcion: str
     ubicacion: str

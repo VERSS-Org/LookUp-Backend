@@ -93,6 +93,16 @@ class ListarPuestosQueryHandler(QueryHandler):
         else:
             # Listar todos
             puestos = self.puesto_repository.listar_todos()
+
+        if query.empresa_id and query.estado:
+            puestos = [
+                puesto for puesto in puestos
+                if (
+                    puesto.puesto.estado.value
+                    if hasattr(puesto.puesto.estado, 'value')
+                    else puesto.puesto.estado
+                ) == query.estado.value
+            ]
         
         # Construir respuesta resumida
         resultado = []
@@ -109,10 +119,23 @@ class ListarPuestosQueryHandler(QueryHandler):
                 "puesto_id": str(agg.puesto.puesto_id),
                 "empresa_id": str(agg.puesto.empresa_id),
                 "titulo": agg.puesto.titulo,
+                "descripcion": agg.puesto.descripcion,
                 "ubicacion": agg.puesto.ubicacion,
+                "salario_min": agg.puesto.salario_min,
+                "salario_max": agg.puesto.salario_max,
+                "moneda": agg.puesto.moneda,
                 "tipo_contrato": tipo_contrato_value,
                 "fecha_publicacion": agg.puesto.fecha_publicacion.isoformat(),
-                "estado": estado_value
+                "fecha_cierre": agg.puesto.fecha_cierre.isoformat() if agg.puesto.fecha_cierre else None,
+                "estado": estado_value,
+                "requisitos": [
+                    {
+                        "tipo": req.tipo,
+                        "descripcion": req.descripcion,
+                        "es_obligatorio": req.es_obligatorio
+                    }
+                    for req in agg.requisitos
+                ]
             })
         
         return resultado

@@ -24,6 +24,10 @@ class PostulacionService:
         self.postulacion_repo = PostulacionRepositoryImpl()
         self.puesto_repo = PuestoRepositoryImpl()
         self.cuenta_repo = CuentaRepositoryImpl()
+
+    @staticmethod
+    def _valor_publico(valor: Any) -> Any:
+        return valor.value if hasattr(valor, "value") else valor
     
     def enriquecer_postulacion(
         self,
@@ -62,6 +66,12 @@ class PostulacionService:
                 )
                 if puesto_info:
                     postulacion_enriquecida["puesto"] = puesto_info
+
+                    empresa_id = puesto_info.get("empresa_id")
+                    if incluir_empresa and empresa_id:
+                        empresa_info = self._obtener_info_empresa(UUID(empresa_id))
+                        if empresa_info:
+                            postulacion_enriquecida["empresa"] = empresa_info
         
         except Exception as e:
             # Log del error pero no fallar - devolver datos básicos
@@ -157,7 +167,7 @@ class PostulacionService:
                 salario_min = getattr(puesto_obj, "salario_min", None)
                 salario_max = getattr(puesto_obj, "salario_max", None)
                 moneda = getattr(puesto_obj, "moneda", "MXN")
-                tipo_contrato = getattr(puesto_obj, "tipo_contrato", "")
+                tipo_contrato = self._valor_publico(getattr(puesto_obj, "tipo_contrato", ""))
                 empresa_id = getattr(puesto_obj, "empresa_id", None)
             elif isinstance(puesto, dict):
                 titulo = puesto.get("titulo", "")
@@ -166,7 +176,7 @@ class PostulacionService:
                 salario_min = puesto.get("salario_min")
                 salario_max = puesto.get("salario_max")
                 moneda = puesto.get("moneda", "MXN")
-                tipo_contrato = puesto.get("tipo_contrato", "")
+                tipo_contrato = self._valor_publico(puesto.get("tipo_contrato", ""))
                 empresa_id = puesto.get("empresa_id")
             else:
                 titulo = getattr(puesto, "titulo", "")
@@ -175,7 +185,7 @@ class PostulacionService:
                 salario_min = getattr(puesto, "salario_min", None)
                 salario_max = getattr(puesto, "salario_max", None)
                 moneda = getattr(puesto, "moneda", "MXN")
-                tipo_contrato = getattr(puesto, "tipo_contrato", "")
+                tipo_contrato = self._valor_publico(getattr(puesto, "tipo_contrato", ""))
                 empresa_id = getattr(puesto, "empresa_id", None)
 
             empresa_id_str = str(empresa_id) if empresa_id is not None else ""
