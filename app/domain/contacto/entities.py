@@ -130,7 +130,7 @@ class ContactoAggregate(AggregateRoot):
             # Emitir evento para actualizar postulación a RECHAZO
             self.add_event(SolicitudCambioEstadoPostulacion(
                 self.contacto_postulacion.postulacion_id,
-                "rechazo"
+                "rechazado"
             ))
             self.contacto_postulacion.marcar_como_rechazado()
 

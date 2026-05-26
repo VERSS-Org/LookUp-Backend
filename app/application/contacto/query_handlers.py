@@ -41,6 +41,15 @@ class ObtenerContactosPostulacionQueryHandler(QueryHandler):
                     "mensaje": feedback.mensaje_texto,
                     "motivo_rechazo": feedback.motivo_rechazo
                 }
+
+            feedbacks = [
+                {
+                    "tipo": feedback.tipo.value,
+                    "mensaje": feedback.mensaje_texto,
+                    "motivo_rechazo": feedback.motivo_rechazo
+                }
+                for feedback in contacto_aggregate.lista_feedback
+            ]
             
             resultado.append({
                 "contacto_id": str(contacto.contacto_id),
@@ -50,7 +59,8 @@ class ObtenerContactosPostulacionQueryHandler(QueryHandler):
                 "tipo_mensaje": contacto.tipo_mensaje.value,
                 "motivo_rechazo": contacto.motivo_rechazo,
                 "fecha_hora": contacto.fecha_hora.isoformat(),
-                "ultimo_feedback": ultimo_feedback
+                "ultimo_feedback": ultimo_feedback,
+                "feedbacks": feedbacks
             })
         
         return resultado

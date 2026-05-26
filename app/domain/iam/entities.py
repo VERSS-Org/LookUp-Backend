@@ -68,6 +68,7 @@ class Cuenta:
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
+    foto_url: Optional[str] = None
     rol: RolEnum = RolEnum.POSTULANTE
     estado: EstadoCuentaEnum = EstadoCuentaEnum.NO_VERIFICADA
     datos_verificacion: Dict[str, Any] = field(default_factory=dict)
@@ -105,6 +106,7 @@ class CuentaAggregate(AggregateRoot):
         carrera: Optional[str] = None,
         telefono: Optional[str] = None,
         ciudad: Optional[str] = None,
+        foto_url: Optional[str] = None,
         rol: RolEnum = RolEnum.POSTULANTE
     ) -> None:
         """Aplica la creación de una nueva cuenta"""
@@ -118,6 +120,7 @@ class CuentaAggregate(AggregateRoot):
         self.cuenta.carrera = carrera
         self.cuenta.telefono = telefono
         self.cuenta.ciudad = ciudad
+        self.cuenta.foto_url = foto_url
         self.cuenta.rol = rol
         
         self.add_event(CuentaCreada(

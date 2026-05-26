@@ -51,6 +51,7 @@ class CuentaUpdateRequest(BaseModel):
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
+    foto_url: Optional[str] = None
 
 
 # Esquemas de respuesta
@@ -72,6 +73,7 @@ class CuentaResponse(BaseModel):
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
+    foto_url: Optional[str] = None
     rol: str
     estado: str
     fecha_creacion: datetime

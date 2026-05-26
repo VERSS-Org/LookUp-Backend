@@ -82,7 +82,7 @@ def _estado_desde_feedback(tipo_feedback: str) -> Optional[str]:
     if tipo_feedback == "aprobacion":
         return "oferta"
     if tipo_feedback == "rechazo":
-        return "rechazo"
+        return "rechazado"
     return None
 
 

@@ -37,6 +37,7 @@ class CuentaRepositoryImpl(CuentaRepository):
                 cuenta_existente.carrera = cuenta.carrera
                 cuenta_existente.telefono = cuenta.telefono
                 cuenta_existente.ciudad = cuenta.ciudad
+                cuenta_existente.foto_url = cuenta.foto_url
                 cuenta_existente.rol = cuenta.rol
                 cuenta_existente.estado = cuenta.estado
                 cuenta_existente.fecha_actualizacion = cuenta.fecha_actualizacion
@@ -52,6 +53,7 @@ class CuentaRepositoryImpl(CuentaRepository):
                     carrera=cuenta.carrera,
                     telefono=cuenta.telefono,
                     ciudad=cuenta.ciudad,
+                    foto_url=cuenta.foto_url,
                     email=cuenta.credencial.email,
                     hash_password=cuenta.credencial.hash_password,
                     rol=cuenta.rol,
@@ -213,6 +215,7 @@ class CuentaRepositoryImpl(CuentaRepository):
             carrera=cuenta_model.carrera,
             telefono=cuenta_model.telefono,
             ciudad=cuenta_model.ciudad,
+            foto_url=cuenta_model.foto_url,
             rol=cuenta_model.rol,
             estado=cuenta_model.estado,
             datos_verificacion=datos_verificacion,

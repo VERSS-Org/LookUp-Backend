@@ -72,6 +72,7 @@ async def registrar_cuenta(request: CrearCuentaRequest):
             carrera=cuenta_data['carrera'],
             telefono=cuenta_data['telefono'],
             ciudad=cuenta_data['ciudad'],
+            foto_url=cuenta_data.get('foto_url'),
             rol=cuenta_data['rol'],
             estado=cuenta_data['estado'],
             fecha_creacion=cuenta_data['fecha_creacion'],

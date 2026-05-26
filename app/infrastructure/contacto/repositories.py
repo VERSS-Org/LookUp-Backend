@@ -113,7 +113,7 @@ class ContactoRepositoryImpl(ContactoRepository):
         try:
             contactos_db = db.query(ContactoPostulacionModel).filter(
                 ContactoPostulacionModel.postulacion_id == str(postulacion_id)
-            ).all()
+            ).order_by(ContactoPostulacionModel.fecha_hora.asc()).all()
             
             resultado = []
             for contacto_db in contactos_db:

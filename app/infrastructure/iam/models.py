@@ -18,6 +18,7 @@ class CuentaModel(Base):
     carrera = Column(String(255), nullable=True)
     telefono = Column(String(50), nullable=True)
     ciudad = Column(String(100), nullable=True)
+    foto_url = Column(Text, nullable=True)
     rol = Column(Enum(RolEnum), nullable=False, default=RolEnum.POSTULANTE)
     estado = Column(Enum(EstadoCuentaEnum), nullable=False, default=EstadoCuentaEnum.NO_VERIFICADA)
     datos_verificacion = Column(Text, nullable=True)  # JSON almacenado como texto

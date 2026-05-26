@@ -38,12 +38,16 @@ def _require_same_account(cuenta_id: UUID, usuario: dict) -> None:
 
 
 def _serialize_postulacion(aggregate) -> dict:
+    estado = aggregate.postulacion.estado.valor.value
+    if estado == "rechazo":
+        estado = "rechazado"
+
     return {
         "postulacion_id": str(aggregate.postulacion.postulacion_id),
         "candidato_id": str(aggregate.postulacion.candidato_id),
         "puesto_id": str(aggregate.postulacion.puesto_id),
         "fecha_postulacion": aggregate.postulacion.fecha_postulacion.isoformat(),
-        "estado": aggregate.postulacion.estado.valor.value,
+        "estado": estado,
         "documentos_adjuntos": aggregate.postulacion.documentos_adjuntos,
         "hitos": [
             {
@@ -194,9 +198,12 @@ async def listar_postulaciones(
             return []
 
         if estado:
+            estados_equivalentes = [estado.value]
+            if estado.value == "rechazado":
+                estados_equivalentes.append("rechazo")
             resultados = [
                 aggregate for aggregate in resultados
-                if aggregate.postulacion.estado.valor.value == estado.value
+                if aggregate.postulacion.estado.valor.value in estados_equivalentes
             ]
 
         respuestas = [_serialize_postulacion(aggregate) for aggregate in resultados]

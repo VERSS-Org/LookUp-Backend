@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from sqlalchemy import inspect, text
 
 from app.infrastructure.database.connection import engine, Base
 from app.interface.api.postulacion.router import router as postulacion_router
@@ -20,10 +21,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _ensure_column(table_name: str, column_name: str, ddl: str) -> None:
+    if engine is None:
+        return
+
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    if column_name in columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
+    logger.info("Columna %s.%s creada para compatibilidad.", table_name, column_name)
+
+
+def _ensure_runtime_schema() -> None:
+    # create_all no altera tablas existentes; estas columnas son necesarias para
+    # instalaciones que nacieron con el esquema inicial del proyecto.
+    _ensure_column("puestos", "ubicacion", "ubicacion VARCHAR(300)")
+    _ensure_column("puestos", "salario_min", "salario_min FLOAT")
+    _ensure_column("puestos", "salario_max", "salario_max FLOAT")
+    _ensure_column("puestos", "moneda", "moneda VARCHAR(10) NOT NULL DEFAULT 'MXN'")
+    _ensure_column("puestos", "tipo_contrato", "tipo_contrato VARCHAR(50) NOT NULL DEFAULT 'tiempo_completo'")
+    _ensure_column("puestos", "fecha_publicacion", "fecha_publicacion TIMESTAMP NOT NULL DEFAULT NOW()")
+    _ensure_column("puestos", "fecha_cierre", "fecha_cierre TIMESTAMP")
+    _ensure_column("cuentas", "foto_url", "foto_url TEXT")
+
+
 try:
     if engine is not None:
         logger.info("Creando tablas en la base de datos...")
         Base.metadata.create_all(bind=engine)
+        _ensure_runtime_schema()
         logger.info("Tablas creadas exitosamente.")
     else:
         logger.warning("Motor de base de datos no disponible, no se pueden crear tablas.")
