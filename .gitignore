@@ -48,6 +48,9 @@ env/
 *.log
 logs/
 
+# User uploads
+uploads/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,5 +1,7 @@
 import logging
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -19,6 +21,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+UPLOADS_DIR = "uploads"
+Path(UPLOADS_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_column(table_name: str, column_name: str, ddl: str) -> None:
@@ -86,6 +90,7 @@ app.include_router(contacto_router, prefix="/api")
 app.include_router(metrica_router, prefix="/api")
 app.include_router(puesto_router, prefix="/api")
 app.include_router(iam_router, prefix="/api")
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 @app.get("/", tags=["Root"])
 async def root():

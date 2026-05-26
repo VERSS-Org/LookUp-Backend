@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from typing import Optional
 from datetime import datetime
+from pathlib import Path as FilePath
 from uuid import UUID
+from uuid import uuid4
 
 from app.application.iam.command_handlers import (
     CrearCuentaHandler, CrearCuentaCommand,
@@ -27,6 +29,27 @@ from .schemas import (
 )
 
 router = APIRouter(prefix="/iam", tags=["IAM"])
+PROFILE_PHOTO_DIR = FilePath("uploads/profile_photos")
+MAX_PROFILE_PHOTO_BYTES = 3 * 1024 * 1024
+ALLOWED_PROFILE_PHOTO_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+}
+
+
+def _looks_like_image(content: bytes, extension: str) -> bool:
+    if extension in {".jpg", ".jpeg"}:
+        return content.startswith(b"\xff\xd8\xff")
+    if extension == ".png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if extension == ".webp":
+        return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+    if extension == ".gif":
+        return content.startswith((b"GIF87a", b"GIF89a"))
+    return False
 
 
 def _validar_misma_cuenta(cuenta_id: str, usuario: dict) -> None:
@@ -391,6 +414,80 @@ async def actualizar_cuenta(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error al actualizar cuenta: {str(e)}"
+        )
+
+
+@router.post("/cuenta/{cuenta_id}/foto", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
+async def subir_foto_perfil(
+    cuenta_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    usuario: dict = Depends(obtener_usuario_actual)
+):
+    """
+    Sube una imagen de perfil para la cuenta autenticada y actualiza foto_url.
+    """
+    try:
+        _validar_misma_cuenta(cuenta_id, usuario)
+
+        original_name = file.filename or ""
+        extension = FilePath(original_name).suffix.lower()
+        if extension not in ALLOWED_PROFILE_PHOTO_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Formato de imagen no soportado. Usa JPG, PNG, WEBP o GIF"
+            )
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La imagen esta vacia"
+            )
+        if len(content) > MAX_PROFILE_PHOTO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La imagen supera el limite de 3 MB"
+            )
+        if not _looks_like_image(content, extension):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El archivo no parece ser una imagen valida"
+            )
+
+        repository = CuentaRepositoryImpl()
+        cuenta_aggregate = repository.obtener_por_id(UUID(cuenta_id))
+        if not cuenta_aggregate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cuenta no encontrada: {cuenta_id}"
+            )
+
+        PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+        file_name = f"{cuenta_id}-{uuid4().hex}{extension}"
+        file_path = PROFILE_PHOTO_DIR / file_name
+        file_path.write_bytes(content)
+
+        public_url = str(request.base_url).rstrip("/") + f"/uploads/profile_photos/{file_name}"
+        cuenta_aggregate.cuenta.foto_url = public_url
+        cuenta_aggregate.cuenta.fecha_actualizacion = datetime.now()
+        repository.guardar(cuenta_aggregate)
+
+        handler = ObtenerCuentaQueryHandler(repository)
+        cuenta_data = handler.handle(ObtenerCuentaQuery(cuenta_id=UUID(cuenta_id)))
+        return CuentaResponse(**cuenta_data)
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al subir foto: {str(e)}"
         )
 
 
