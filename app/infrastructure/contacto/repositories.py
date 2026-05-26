@@ -34,12 +34,14 @@ class ContactoRepositoryImpl(ContactoRepository):
                     empresa_id=str(contacto.empresa_id),
                     cuenta_id=str(contacto.cuenta_id),
                     tipo_mensaje=contacto.tipo_mensaje.value,
+                    remitente_rol=contacto.remitente_rol,
                     motivo_rechazo=contacto.motivo_rechazo,
                     fecha_hora=contacto.fecha_hora
                 )
                 db.add(contacto_db)
             else:
                 contacto_db.tipo_mensaje = contacto.tipo_mensaje.value
+                contacto_db.remitente_rol = contacto.remitente_rol
                 contacto_db.motivo_rechazo = contacto.motivo_rechazo
             
             db.query(FeedbackModel).filter(
@@ -84,6 +86,7 @@ class ContactoRepositoryImpl(ContactoRepository):
                 empresa_id=UUID(contacto_db.empresa_id),
                 cuenta_id=UUID(contacto_db.cuenta_id),
                 tipo_mensaje=TipoMensajeEnum(contacto_db.tipo_mensaje),
+                remitente_rol=getattr(contacto_db, "remitente_rol", None) or "empresa",
                 motivo_rechazo=contacto_db.motivo_rechazo,
                 fecha_hora=contacto_db.fecha_hora
             )

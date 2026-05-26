@@ -40,6 +40,7 @@ class ContactoResponse(BaseModel):
     empresa_id: str
     cuenta_id: str
     tipo_mensaje: str
+    remitente_rol: str = "empresa"
     motivo_rechazo: Optional[str] = None
     fecha_hora: datetime
     ultimo_feedback: Optional[FeedbackResumen] = None
@@ -60,6 +61,11 @@ class FeedbackCreate(BaseModel):
     tipo_feedback: TipoFeedbackEnum
     mensaje_texto: Optional[str] = None
     motivo_rechazo: Optional[str] = None
+
+
+class MensajeContactoCreate(BaseModel):
+    postulacion_id: str
+    mensaje_texto: str
 
 
 class FeedbackResponse(BaseModel):

@@ -15,6 +15,7 @@ class ContactoPostulacionModel(Base):
     empresa_id = Column(String(36), nullable=False)
     cuenta_id = Column(String(36), nullable=False)
     tipo_mensaje = Column(SQLAEnum(TipoMensajeEnum, native_enum=False), nullable=False)
+    remitente_rol = Column(String(20), nullable=False, default="empresa")
     motivo_rechazo = Column(String(500), nullable=True)
     fecha_hora = Column(DateTime, nullable=False)
     

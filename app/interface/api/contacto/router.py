@@ -13,6 +13,11 @@ from app.application.contacto.query_handlers import (
     ObtenerContactoQueryHandler, ObtenerContactoQuery,
     ObtenerContactosPostulacionQueryHandler, ObtenerContactosPostulacionQuery
 )
+from app.domain.contacto.entities import (
+    ContactoAggregate, ContactoPostulacion, Feedback,
+    TipoFeedbackEnum as DomainTipoFeedbackEnum,
+    TipoMensajeEnum as DomainTipoMensajeEnum
+)
 from app.infrastructure.contacto.repositories import ContactoRepositoryImpl
 from app.infrastructure.postulacion.repositories import PostulacionRepositoryImpl
 from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
@@ -20,7 +25,7 @@ from app.interface.api.dependencies import obtener_usuario_actual
 
 from .schemas import (
     ContactoCreate, ContactoResponse, ContactoUpdate,
-    FeedbackCreate, FeedbackResponse, TipoContactoEnum
+    FeedbackCreate, FeedbackResponse, MensajeContactoCreate, TipoContactoEnum
 )
 
 router = APIRouter(prefix="/contacto", tags=["Contacto"])
@@ -92,6 +97,58 @@ async def crear_contacto(contacto: ContactoCreate):
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Este endpoint esta temporalmente no disponible"
     )
+
+
+@router.post("/mensaje", response_model=ContactoResponse, status_code=status.HTTP_201_CREATED)
+async def enviar_mensaje_contacto(
+    mensaje: MensajeContactoCreate,
+    usuario: dict = Depends(obtener_usuario_actual)
+):
+    try:
+        postulacion = _obtener_postulacion_o_404(UUID(mensaje.postulacion_id))
+        _require_postulacion_access(postulacion, usuario)
+
+        texto = mensaje.mensaje_texto.strip()
+        if not texto:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mensaje_texto no puede estar vacio"
+            )
+
+        puesto = PuestoRepositoryImpl().obtener_por_id(postulacion.postulacion.puesto_id)
+        if not puesto:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Puesto asociado a la postulacion no encontrado"
+            )
+
+        contacto = ContactoPostulacion(
+            postulacion_id=postulacion.postulacion.postulacion_id,
+            empresa_id=puesto.puesto.empresa_id,
+            cuenta_id=postulacion.postulacion.candidato_id,
+            tipo_mensaje=DomainTipoMensajeEnum.ACTUALIZACION,
+            remitente_rol=usuario["rol"]
+        )
+        feedback = Feedback(
+            tipo=DomainTipoFeedbackEnum.OTRO,
+            mensaje_texto=texto
+        )
+        contacto_aggregate = ContactoAggregate(contacto_postulacion=contacto)
+        contacto_aggregate.procesar_feedback(feedback)
+
+        contacto_repository = ContactoRepositoryImpl()
+        contacto_id = contacto_repository.guardar(contacto_aggregate)
+        resultado = ObtenerContactoQueryHandler(contacto_repository).handle(
+            ObtenerContactoQuery(contacto_id=contacto_id)
+        )
+        return ContactoResponse(**resultado)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 @router.get("/{contacto_id}", response_model=ContactoResponse)

@@ -55,7 +55,8 @@ class EnviarFeedbackCommandHandler(CommandHandler):
             postulacion_id=command.postulacion_id,
             empresa_id=command.empresa_id,
             cuenta_id=command.cuenta_id,
-            tipo_mensaje=TipoMensajeEnum.FEEDBACK
+            tipo_mensaje=TipoMensajeEnum.FEEDBACK,
+            remitente_rol="empresa"
         )
         
         # Crear agregado

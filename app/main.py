@@ -49,6 +49,7 @@ def _ensure_runtime_schema() -> None:
     _ensure_column("puestos", "fecha_publicacion", "fecha_publicacion TIMESTAMP NOT NULL DEFAULT NOW()")
     _ensure_column("puestos", "fecha_cierre", "fecha_cierre TIMESTAMP")
     _ensure_column("cuentas", "foto_url", "foto_url TEXT")
+    _ensure_column("contactos_postulacion", "remitente_rol", "remitente_rol VARCHAR(20) NOT NULL DEFAULT 'empresa'")
 
 
 try:

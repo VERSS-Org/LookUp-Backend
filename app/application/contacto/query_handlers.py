@@ -57,6 +57,7 @@ class ObtenerContactosPostulacionQueryHandler(QueryHandler):
                 "empresa_id": str(contacto.empresa_id),
                 "cuenta_id": str(contacto.cuenta_id),
                 "tipo_mensaje": contacto.tipo_mensaje.value,
+                "remitente_rol": contacto.remitente_rol,
                 "motivo_rechazo": contacto.motivo_rechazo,
                 "fecha_hora": contacto.fecha_hora.isoformat(),
                 "ultimo_feedback": ultimo_feedback,
@@ -98,6 +99,7 @@ class ObtenerContactoQueryHandler(QueryHandler):
             "empresa_id": str(contacto.empresa_id),
             "cuenta_id": str(contacto.cuenta_id),
             "tipo_mensaje": contacto.tipo_mensaje.value,
+            "remitente_rol": contacto.remitente_rol,
             "motivo_rechazo": contacto.motivo_rechazo,
             "fecha_hora": contacto.fecha_hora.isoformat(),
             "feedbacks": [

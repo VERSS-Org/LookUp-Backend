@@ -57,6 +57,7 @@ class ContactoPostulacion:
     empresa_id: UUID = None
     cuenta_id: UUID = None  # ID de la cuenta del candidato
     tipo_mensaje: TipoMensajeEnum = TipoMensajeEnum.FEEDBACK
+    remitente_rol: str = "empresa"
     motivo_rechazo: Optional[str] = None
     fecha_hora: datetime = field(default_factory=datetime.now)
     
