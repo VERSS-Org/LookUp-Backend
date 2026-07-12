@@ -24,7 +24,6 @@ class TipoContratoEnum(str, Enum):
     TIEMPO_COMPLETO = "tiempo_completo"
     MEDIO_TIEMPO = "medio_tiempo"
     TEMPORAL = "temporal"
-    FREELANCE = "freelance"
     PRACTICAS = "practicas"
 
 

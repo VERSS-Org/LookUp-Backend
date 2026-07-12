@@ -11,12 +11,24 @@ def _normalizar_email(value: EmailStr) -> str:
     return str(value).strip().lower()
 
 
+def _normalizar_texto_opcional(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalizado = value.strip()
+    return normalizado or None
+
+
 # Esquemas de solicitud
 class DatosContacto(BaseModel):
     """Datos de contacto del usuario"""
-    telefono: Optional[str] = None
-    ciudad: Optional[str] = None
+    telefono: Optional[str] = Field(None, max_length=50)
+    ciudad: Optional[str] = Field(None, max_length=100)
     pais: Optional[str] = None
+
+    @field_validator("telefono", "ciudad")
+    @classmethod
+    def normalizar_contacto(cls, value: Optional[str]) -> Optional[str]:
+        return _normalizar_texto_opcional(value)
 
 
 class CrearCuentaRequest(BaseModel):
@@ -25,8 +37,8 @@ class CrearCuentaRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     carrera: Optional[str] = None
-    telefono: Optional[str] = None
-    ciudad: Optional[str] = None
+    telefono: Optional[str] = Field(None, max_length=50)
+    ciudad: Optional[str] = Field(None, max_length=100)
     rol: str = "postulante"
 
     @field_validator("nombre_completo")
@@ -51,6 +63,11 @@ class CrearCuentaRequest(BaseModel):
     @classmethod
     def normalizar_email(cls, value: EmailStr) -> str:
         return _normalizar_email(value)
+
+    @field_validator("telefono", "ciudad")
+    @classmethod
+    def normalizar_contacto(cls, value: Optional[str]) -> Optional[str]:
+        return _normalizar_texto_opcional(value)
 
 
 class LoginRequest(BaseModel):
@@ -108,8 +125,8 @@ class CuentaUpdateRequest(BaseModel):
     """Solicitud para actualizar datos editables de una cuenta"""
     nombre_completo: Optional[str] = None
     carrera: Optional[str] = None
-    telefono: Optional[str] = None
-    ciudad: Optional[str] = None
+    telefono: Optional[str] = Field(None, max_length=50)
+    ciudad: Optional[str] = Field(None, max_length=100)
     foto_url: Optional[str] = None
     perfil: Optional[Dict[str, Any]] = None
 
@@ -122,6 +139,11 @@ class CuentaUpdateRequest(BaseModel):
         if not value:
             raise ValueError("nombre_completo no puede estar vacío")
         return value
+
+    @field_validator("telefono", "ciudad")
+    @classmethod
+    def normalizar_contacto(cls, value: Optional[str]) -> Optional[str]:
+        return _normalizar_texto_opcional(value)
 
 
 # Esquemas de respuesta

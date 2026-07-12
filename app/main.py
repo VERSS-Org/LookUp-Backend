@@ -58,6 +58,8 @@ def _ensure_runtime_schema() -> None:
         "fecha_publicacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
     )
     _ensure_column("puestos", "fecha_cierre", "fecha_cierre TIMESTAMP")
+    _ensure_column("cuentas", "telefono", "telefono VARCHAR(50)")
+    _ensure_column("cuentas", "ciudad", "ciudad VARCHAR(100)")
     _ensure_column("cuentas", "foto_url", "foto_url TEXT")
     _ensure_column("cuentas", "perfil", "perfil TEXT")
     _ensure_column(

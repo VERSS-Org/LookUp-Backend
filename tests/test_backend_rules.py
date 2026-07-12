@@ -4,9 +4,10 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import create_engine
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,6 +18,12 @@ from app.application.iam.query_handlers import (
     VerificarTokenQueryHandler,
 )
 from app.application.iam.command_handlers import CrearCuentaCommand, CrearCuentaHandler
+from app.application.puesto.command_handlers import (
+    ActualizarPuestoCommand,
+    ActualizarPuestoHandler,
+    CrearPuestoCommand,
+    CrearPuestoHandler,
+)
 from app.domain.iam.entities import Cuenta, CuentaAggregate
 from app.infrastructure.metrica.repositories import MetricaRepositoryImpl
 from app.domain.postulacion.entities import (
@@ -26,7 +33,12 @@ from app.domain.postulacion.entities import (
     Postulacion,
     PostulacionAggregate,
 )
-from app.domain.puesto.entities import Puesto, PuestoAggregate, Requisito
+from app.domain.puesto.entities import (
+    Puesto,
+    PuestoAggregate,
+    Requisito,
+    TipoContratoEnum,
+)
 from app.infrastructure.database.connection import Base
 from app.infrastructure.iam.models import (
     CuentaModel,
@@ -45,6 +57,7 @@ from app.infrastructure.puesto.models import (
 from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
 from app.interface.api import dependencies
 from app.interface.api.iam import router as iam_router
+from app.interface.api.puesto import router as puesto_router
 
 
 def _sqlite_session(tables):
@@ -111,6 +124,67 @@ def test_registro_crea_cuenta_activa_sin_verificacion_ficticia():
     assert repository.aggregate.cuenta.estado == EstadoCuentaEnum.ACTIVA
 
 
+def test_empresa_actualiza_telefono_y_ciudad_por_endpoint(monkeypatch):
+    Session = _sqlite_session(
+        [
+            CuentaModel.__table__,
+            TokenModel.__table__,
+            HistorialAccesoModel.__table__,
+        ]
+    )
+    import app.infrastructure.iam.repositories as repository_module
+
+    monkeypatch.setattr(repository_module, "SessionLocal", Session)
+    cuenta_id = uuid4()
+    with Session() as db:
+        db.add(
+            CuentaModel(
+                id=cuenta_id,
+                email="empresa@example.com",
+                hash_password="hash",
+                nombre_completo="Empresa Demo",
+                rol=RolEnum.EMPRESA,
+                estado=EstadoCuentaEnum.ACTIVA,
+                fecha_creacion=datetime.now(),
+            )
+        )
+        db.commit()
+
+    app = FastAPI()
+    app.include_router(iam_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: {
+        "cuenta_id": str(cuenta_id),
+        "rol": "empresa",
+    }
+
+    response = TestClient(app).patch(
+        f"/api/iam/cuenta/{cuenta_id}",
+        json={"telefono": "  +51 999 888 777  ", "ciudad": "  Lima  "},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["telefono"] == "+51 999 888 777"
+    assert response.json()["ciudad"] == "Lima"
+    with Session() as db:
+        cuenta = db.get(CuentaModel, cuenta_id)
+        assert cuenta.telefono == "+51 999 888 777"
+        assert cuenta.ciudad == "Lima"
+
+
+def test_compatibilidad_agrega_contacto_a_esquema_legacy(monkeypatch):
+    import app.main as main_module
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE cuentas (id VARCHAR PRIMARY KEY)"))
+
+    monkeypatch.setattr(main_module, "engine", engine)
+    main_module._ensure_runtime_schema()
+
+    columnas = {columna["name"] for columna in inspect(engine).get_columns("cuentas")}
+    assert {"telefono", "ciudad"}.issubset(columnas)
+
+
 def test_eventos_de_agregados_no_se_comparten():
     primero = AggregateRoot()
     segundo = AggregateRoot()
@@ -164,6 +238,110 @@ def test_requisitos_de_vacante_se_persisten_y_actualizan(monkeypatch):
     assert [(r.descripcion, r.es_obligatorio) for r in actualizado.requisitos] == [
         ("FastAPI", False)
     ]
+
+
+def test_api_rechaza_freelance_al_crear_y_actualizar_vacantes():
+    empresa_id = uuid4()
+    app = FastAPI()
+    app.include_router(puesto_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: {
+        "cuenta_id": str(empresa_id),
+        "rol": "empresa",
+    }
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/api/puesto/",
+        json={
+            "empresa_id": str(empresa_id),
+            "titulo": "Backend",
+            "descripcion": "Desarrollo de API",
+            "ubicacion": "Lima",
+            "tipo_contrato": "freelance",
+        },
+    )
+    update_response = client.put(
+        f"/api/puesto/{uuid4()}",
+        json={"tipo_contrato": "freelance"},
+    )
+
+    assert create_response.status_code == 422
+    assert update_response.status_code == 422
+    assert "freelance" in create_response.text
+    assert "freelance" in update_response.text
+
+
+def test_regla_de_dominio_no_persiste_freelance_en_nuevas_escrituras():
+    class Repositorio:
+        def __init__(self):
+            self.guardados = 0
+            self.aggregate = PuestoAggregate(
+                puesto=Puesto(
+                    empresa_id=uuid4(),
+                    titulo="Backend",
+                    descripcion="API",
+                )
+            )
+
+        def obtener_por_id(self, _puesto_id):
+            return self.aggregate
+
+        def guardar(self, aggregate):
+            self.guardados += 1
+            return aggregate.puesto.puesto_id
+
+    repository = Repositorio()
+    with pytest.raises(ValueError, match="no está permitido"):
+        CrearPuestoHandler(repository).handle(
+            CrearPuestoCommand(
+                empresa_id=uuid4(),
+                titulo="Proyecto",
+                descripcion="Trabajo por proyecto",
+                ubicacion="Remoto",
+                tipo_contrato=TipoContratoEnum.FREELANCE,
+            )
+        )
+    with pytest.raises(ValueError, match="no está permitido"):
+        ActualizarPuestoHandler(repository).handle(
+            ActualizarPuestoCommand(
+                puesto_id=repository.aggregate.puesto.puesto_id,
+                tipo_contrato=TipoContratoEnum.FREELANCE,
+            )
+        )
+
+    assert repository.guardados == 0
+
+
+def test_repositorio_lee_tipo_freelance_legacy(monkeypatch):
+    Session = _sqlite_session(
+        [
+            PuestoModel.__table__,
+            RequisitoPuestoModel.__table__,
+            PuestoMapeo.__table__,
+        ]
+    )
+    import app.infrastructure.puesto.repositories as repository_module
+
+    monkeypatch.setattr(repository_module, "SessionLocal", Session)
+    puesto_id = uuid4()
+    with Session() as db:
+        puesto = PuestoModel(
+            titulo="Proyecto heredado",
+            empresa=str(uuid4()),
+            descripcion="Registro anterior al catalogo actual",
+            ubicacion="Remoto",
+            tipo_contrato="freelance",
+            estado="abierto",
+        )
+        db.add(puesto)
+        db.flush()
+        db.add(PuestoMapeo(uuid_id=str(puesto_id), bd_id=puesto.id))
+        db.commit()
+
+    recuperado = PuestoRepositoryImpl().obtener_por_id(puesto_id)
+
+    assert recuperado is not None
+    assert recuperado.puesto.tipo_contrato == TipoContratoEnum.FREELANCE
 
 
 def test_salarios_explicitos_null_se_limpian_y_el_rango_final_se_valida():
