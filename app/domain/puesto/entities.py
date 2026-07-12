@@ -14,12 +14,28 @@ class EstadoPuestoEnum(str, Enum):
 
 
 class TipoContratoEnum(str, Enum):
-    """Valores posibles para el tipo de contrato de un puesto"""
+    """Tipos conocidos, incluido ``freelance`` para leer datos heredados."""
     TIEMPO_COMPLETO = "tiempo_completo"
     MEDIO_TIEMPO = "medio_tiempo"
     TEMPORAL = "temporal"
     FREELANCE = "freelance"
     PRACTICAS = "practicas"
+
+
+TIPOS_CONTRATO_ESCRITURA = frozenset(
+    {
+        TipoContratoEnum.TIEMPO_COMPLETO,
+        TipoContratoEnum.MEDIO_TIEMPO,
+        TipoContratoEnum.PRACTICAS,
+        TipoContratoEnum.TEMPORAL,
+    }
+)
+
+
+def validar_tipo_contrato_escritura(tipo_contrato: TipoContratoEnum) -> None:
+    """Impide crear o seleccionar nuevamente categorías descontinuadas."""
+    if tipo_contrato not in TIPOS_CONTRATO_ESCRITURA:
+        raise ValueError("El tipo de contrato seleccionado no está permitido")
 
 
 @dataclass
@@ -102,6 +118,7 @@ class Puesto:
         if moneda is not None:
             self.moneda = moneda
         if tipo_contrato is not None:
+            validar_tipo_contrato_escritura(tipo_contrato)
             self.tipo_contrato = tipo_contrato
 
 

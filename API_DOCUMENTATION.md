@@ -627,7 +627,7 @@ Base URL: `/api/puesto`
 - `salario_min` (number, optional): Minimum salary offered
 - `salario_max` (number, optional): Maximum salary offered
 - `moneda` (string, optional): Salary currency - default: PEN
-- `tipo_contrato` (string, required): Contract type - Valid values: tiempo_completo, medio_tiempo, temporal, freelance, practicas
+- `tipo_contrato` (string, required): Contract type for new writes. Valid values: `tiempo_completo`, `medio_tiempo`, `practicas`, `temporal`
 - `requisitos` (array, optional): List of requirements with type, description, and es_obligatorio flag
 
 **Response** (201 Created):
@@ -1125,9 +1125,11 @@ ISO 8601 format: `2025-11-30T10:30:00`
 **Contract Type**:
 - `tiempo_completo` - Full-time
 - `medio_tiempo` - Part-time
+- `practicas` - Pre-professional internship
 - `temporal` - Temporary
-- `freelance` - Freelance
-- `practicas` - Internship
+
+Older vacancy responses can still contain `freelance` for read compatibility, but
+the value is not accepted when creating or updating a vacancy.
 
 **Message Type**:
 - `solicitud_info` - Information request

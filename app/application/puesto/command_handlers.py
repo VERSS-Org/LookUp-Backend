@@ -5,7 +5,8 @@ from uuid import UUID
 from app.domain.common import Command, CommandHandler
 from app.domain.puesto.entities import (
     Puesto, PuestoAggregate, EstadoPuestoEnum, TipoContratoEnum,
-    PuestoCreado, PuestoCerrado, PuestoActualizado
+    PuestoCreado, PuestoCerrado, PuestoActualizado,
+    validar_tipo_contrato_escritura,
 )
 from app.domain.puesto.repositories import PuestoRepository
 
@@ -36,6 +37,8 @@ class CrearPuestoHandler(CommandHandler):
         """
         Maneja el comando para crear un puesto
         """
+        validar_tipo_contrato_escritura(command.tipo_contrato)
+
         # Crear la entidad Puesto
         puesto = Puesto(
             empresa_id=command.empresa_id,

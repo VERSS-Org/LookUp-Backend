@@ -48,7 +48,11 @@ class CuentaRepositoryImpl(CuentaRepository):
 
                 # Buscar si existe
                 cuenta_existente = session.query(CuentaModel).filter_by(
-                    id=str(cuenta.cuenta_id)
+                    # ``CuentaModel.id`` usa UUID(as_uuid=True). Convertirlo a
+                    # texto rompe el bind en SQLite (y depende del driver en
+                    # PostgreSQL), precisamente durante cualquier PATCH de
+                    # perfil. El agregado ya conserva un UUID real.
+                    id=cuenta.cuenta_id
                 ).first()
 
                 if cuenta_existente:
