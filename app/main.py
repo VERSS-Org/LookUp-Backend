@@ -46,9 +46,7 @@ def _ensure_runtime_schema() -> None:
     _ensure_column("puestos", "ubicacion", "ubicacion VARCHAR(300)")
     _ensure_column("puestos", "salario_min", "salario_min FLOAT")
     _ensure_column("puestos", "salario_max", "salario_max FLOAT")
-    _ensure_column(
-        "puestos", "moneda", "moneda VARCHAR(10) NOT NULL DEFAULT 'PEN'"
-    )
+    _ensure_column("puestos", "moneda", "moneda VARCHAR(10) NOT NULL DEFAULT 'PEN'")
     _ensure_column(
         "puestos",
         "tipo_contrato",
@@ -136,6 +134,7 @@ allow_credentials = "*" not in settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
