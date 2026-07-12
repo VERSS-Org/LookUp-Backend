@@ -31,8 +31,10 @@ class CrearCuentaHandler(CommandHandler):
     def handle(self, command: CrearCuentaCommand) -> Dict[str, Any]:
         """Maneja el comando de creación de cuenta"""
         
+        email = command.email.strip().lower()
+
         # Validar que el email no exista
-        if self.cuenta_repository.verificar_email_existe(command.email):
+        if self.cuenta_repository.verificar_email_existe(email):
             raise ValueError("El email ya está registrado")
         
         # Validar que la contraseña sea fuerte
@@ -51,7 +53,7 @@ class CrearCuentaHandler(CommandHandler):
         # Crear entidad Cuenta
         cuenta = Cuenta(
             rol=rol_enum,
-            estado=EstadoCuentaEnum.NO_VERIFICADA
+            estado=EstadoCuentaEnum.ACTIVA
         )
         
         # Crear agregado
@@ -59,7 +61,7 @@ class CrearCuentaHandler(CommandHandler):
         
         # Aplicar creación con las credenciales
         cuenta_aggregate.aplicar_creacion_cuenta(
-            email=command.email,
+            email=email,
             hash_password=hash_password,
             nombre_completo=command.nombre_completo,
             carrera=command.carrera,
@@ -75,7 +77,7 @@ class CrearCuentaHandler(CommandHandler):
         return {
             "cuenta_id": str(cuenta_id),
             "nombre_completo": command.nombre_completo,
-            "email": command.email,
+            "email": email,
             "carrera": command.carrera,
             "telefono": command.telefono,
             "ciudad": command.ciudad,
@@ -97,16 +99,24 @@ class GenerarTokenHandler(CommandHandler):
         self.cuenta_repository = cuenta_repository
     
     def handle(self, command: GenerarTokenCommand) -> Dict[str, Any]:
-        """Maneja el comando de generación de token"""
-        
+        """Maneja el comando de generacion de token."""
+        if command.tipo_token not in {"access", "refresh"}:
+            raise ValueError("Tipo de token no permitido")
+
         # Recuperar la cuenta
         cuenta_aggregate = self.cuenta_repository.obtener_por_id(command.cuenta_id)
         
         if not cuenta_aggregate:
             raise ValueError(f"Cuenta no encontrada: {command.cuenta_id}")
         
-        if cuenta_aggregate.cuenta.estado == EstadoCuentaEnum.SUSPENDIDA:
-            raise ValueError("La cuenta está suspendida")
+        if (
+            not cuenta_aggregate.cuenta.credencial.activa
+            or cuenta_aggregate.cuenta.estado in {
+                EstadoCuentaEnum.INACTIVA,
+                EstadoCuentaEnum.SUSPENDIDA,
+            }
+        ):
+            raise ValueError("La cuenta no esta habilitada")
         
         # Generar token
         if command.tipo_token == "refresh":
@@ -142,40 +152,6 @@ class GenerarTokenHandler(CommandHandler):
 
 
 @dataclass
-class VerificarCuentaCommand(Command):
-    """Comando para verificar una cuenta"""
-    cuenta_id: UUID
-    codigo_verificacion: str
-
-
-class VerificarCuentaHandler(CommandHandler):
-    """Manejador del comando para verificar una cuenta"""
-    
-    def __init__(self, cuenta_repository: CuentaRepository):
-        self.cuenta_repository = cuenta_repository
-    
-    def handle(self, command: VerificarCuentaCommand) -> bool:
-        """Maneja el comando de verificación de cuenta"""
-        
-        # Recuperar la cuenta
-        cuenta_aggregate = self.cuenta_repository.obtener_por_id(command.cuenta_id)
-        
-        if not cuenta_aggregate:
-            raise ValueError(f"Cuenta no encontrada: {command.cuenta_id}")
-        
-        # Aplicar verificación
-        resultado = cuenta_aggregate.aplicar_verificacion_cuenta(command.codigo_verificacion)
-        
-        if not resultado:
-            raise ValueError("La cuenta ya está verificada")
-        
-        # Guardar cambios
-        self.cuenta_repository.guardar(cuenta_aggregate)
-        
-        return True
-
-
-@dataclass
 class LoginCommand(Command):
     """Comando para login de un usuario"""
     email: str
@@ -190,12 +166,16 @@ class LoginHandler(CommandHandler):
     
     def handle(self, command: LoginCommand) -> Dict[str, Any]:
         """Maneja el comando de login"""
-        
+        email = command.email.strip().lower()
+
         # Recuperar la cuenta por email
-        cuenta_aggregate = self.cuenta_repository.obtener_por_email(command.email)
+        cuenta_aggregate = self.cuenta_repository.obtener_por_email(email)
         
         if not cuenta_aggregate:
             raise ValueError("Email o contraseña incorrectos")
+
+        if not cuenta_aggregate.cuenta.credencial.activa:
+            raise ValueError("La cuenta esta inactiva")
         
         # Verificar contraseña
         if not PasswordManager.verificar_password(
@@ -220,14 +200,14 @@ class LoginHandler(CommandHandler):
         # Generar tokens
         access_token = TokenManager.crear_access_token({
             "sub": str(cuenta_aggregate.cuenta.cuenta_id),
-            "email": command.email,
+            "email": cuenta_aggregate.cuenta.credencial.email,
             "rol": cuenta_aggregate.cuenta.rol.value,
             "tipo": "access"
         })
         
         refresh_token = TokenManager.crear_refresh_token({
             "sub": str(cuenta_aggregate.cuenta.cuenta_id),
-            "email": command.email,
+            "email": cuenta_aggregate.cuenta.credencial.email,
             "tipo": "refresh"
         })
         
@@ -252,7 +232,7 @@ class LoginHandler(CommandHandler):
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "cuenta_id": str(cuenta_aggregate.cuenta.cuenta_id),
-            "email": command.email,
+            "email": cuenta_aggregate.cuenta.credencial.email,
             "rol": cuenta_aggregate.cuenta.rol.value
         }
 
@@ -302,5 +282,6 @@ class CambiarPasswordHandler(CommandHandler):
         
         # Guardar cambios
         self.cuenta_repository.guardar(cuenta_aggregate)
+        self.cuenta_repository.revocar_tokens(command.cuenta_id)
         
         return True

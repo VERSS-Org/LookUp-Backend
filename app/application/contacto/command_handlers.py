@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Optional
 from uuid import UUID
 
 from app.domain.common import Command, CommandHandler
@@ -74,40 +74,3 @@ class EnviarFeedbackCommandHandler(CommandHandler):
         contacto_id = self.contacto_repository.guardar(contacto_aggregate)
         
         return contacto_id
-
-
-@dataclass
-class ActualizarEstadoContactoCommand(Command):
-    """Comando para actualizar el estado de un contacto"""
-    contacto_id: UUID
-    aceptado: bool
-
-
-class ActualizarEstadoContactoHandler(CommandHandler):
-    """
-    Manejador del comando para actualizar el estado de un contacto
-    """
-    
-    def __init__(self, contacto_repository: ContactoRepository):
-        self.contacto_repository = contacto_repository
-    
-    def handle(self, command: ActualizarEstadoContactoCommand) -> bool:
-        """
-        Maneja el comando de actualización de estado de contacto
-        """
-        # Recuperar el contacto
-        contacto_aggregate = self.contacto_repository.obtener_por_id(command.contacto_id)
-        
-        if not contacto_aggregate:
-            raise ValueError(f"No existe un contacto con ID {command.contacto_id}")
-        
-        # Actualizar el estado
-        if command.aceptado:
-            contacto_aggregate.contacto_postulacion.marcar_como_aceptado()
-        else:
-            contacto_aggregate.contacto_postulacion.marcar_como_rechazado()
-        
-        # Guardar los cambios
-        self.contacto_repository.guardar(contacto_aggregate)
-        
-        return True

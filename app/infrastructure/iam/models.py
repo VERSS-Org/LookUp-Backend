@@ -19,6 +19,7 @@ class CuentaModel(Base):
     telefono = Column(String(50), nullable=True)
     ciudad = Column(String(100), nullable=True)
     foto_url = Column(Text, nullable=True)
+    perfil = Column(Text, nullable=True)  # Perfil extendido en JSON
     rol = Column(Enum(RolEnum), nullable=False, default=RolEnum.POSTULANTE)
     estado = Column(Enum(EstadoCuentaEnum), nullable=False, default=EstadoCuentaEnum.NO_VERIFICADA)
     datos_verificacion = Column(Text, nullable=True)  # JSON almacenado como texto

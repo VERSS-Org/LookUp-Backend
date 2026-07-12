@@ -4,7 +4,11 @@ from uuid import UUID
 from app.domain.puesto.entities import PuestoAggregate
 from app.domain.puesto.repositories import PuestoRepository
 from app.infrastructure.database.connection import SessionLocal
-from app.infrastructure.puesto.models import PuestoModel, PuestoMapeo
+from app.infrastructure.puesto.models import (
+    PuestoMapeo,
+    PuestoModel,
+    RequisitoPuestoModel,
+)
 
 
 class PuestoRepositoryImpl(PuestoRepository):
@@ -14,8 +18,18 @@ class PuestoRepositoryImpl(PuestoRepository):
     Usamos una tabla de mapeo para enlazar UUIDs del dominio a IDs de BD
     """
     
-    def __init__(self):
-        pass
+    @staticmethod
+    def _reemplazar_requisitos(
+        puesto_db: PuestoModel, puesto_aggregate: PuestoAggregate
+    ) -> None:
+        puesto_db.requisitos = [
+            RequisitoPuestoModel(
+                tipo=requisito.tipo,
+                descripcion=requisito.descripcion,
+                es_obligatorio=requisito.es_obligatorio,
+            )
+            for requisito in puesto_aggregate.requisitos
+        ]
     
     def guardar(self, puesto_aggregate: PuestoAggregate) -> UUID:
         """Guarda o actualiza un puesto y devuelve su ID"""
@@ -36,19 +50,21 @@ class PuestoRepositoryImpl(PuestoRepository):
                 puesto_db = db.query(PuestoModel).filter(
                     PuestoModel.id == mapeo_existente.bd_id
                 ).first()
-                if puesto_db:
-                    puesto_db.titulo = puesto.titulo
-                    puesto_db.empresa = empresa_id_str
-                    puesto_db.descripcion = puesto.descripcion
-                    puesto_db.ubicacion = puesto.ubicacion
-                    puesto_db.salario_min = puesto.salario_min
-                    puesto_db.salario_max = puesto.salario_max
-                    puesto_db.moneda = puesto.moneda
-                    puesto_db.tipo_contrato = puesto.tipo_contrato.value if hasattr(puesto.tipo_contrato, 'value') else str(puesto.tipo_contrato)
-                    puesto_db.fecha_publicacion = puesto.fecha_publicacion
-                    puesto_db.fecha_cierre = puesto.fecha_cierre
-                    puesto_db.estado = puesto.estado.value if hasattr(puesto.estado, 'value') else str(puesto.estado)
-                    db.commit()
+                if not puesto_db:
+                    raise ValueError("El mapeo de la vacante apunta a un registro inexistente")
+                puesto_db.titulo = puesto.titulo
+                puesto_db.empresa = empresa_id_str
+                puesto_db.descripcion = puesto.descripcion
+                puesto_db.ubicacion = puesto.ubicacion
+                puesto_db.salario_min = puesto.salario_min
+                puesto_db.salario_max = puesto.salario_max
+                puesto_db.moneda = puesto.moneda
+                puesto_db.tipo_contrato = puesto.tipo_contrato.value if hasattr(puesto.tipo_contrato, 'value') else str(puesto.tipo_contrato)
+                puesto_db.fecha_publicacion = puesto.fecha_publicacion
+                puesto_db.fecha_cierre = puesto.fecha_cierre
+                puesto_db.estado = puesto.estado.value if hasattr(puesto.estado, 'value') else str(puesto.estado)
+                self._reemplazar_requisitos(puesto_db, puesto_aggregate)
+                db.commit()
             else:
                 # INSERT: Nuevo puesto
                 puesto_db = PuestoModel(
@@ -64,6 +80,7 @@ class PuestoRepositoryImpl(PuestoRepository):
                     fecha_cierre=puesto.fecha_cierre,
                     estado=puesto.estado.value if hasattr(puesto.estado, 'value') else (puesto.estado or "abierto")
                 )
+                self._reemplazar_requisitos(puesto_db, puesto_aggregate)
                 db.add(puesto_db)
                 db.flush()  # Obtener el ID autogenerado
                 
@@ -105,22 +122,27 @@ class PuestoRepositoryImpl(PuestoRepository):
             if not puesto_db:
                 return None
             
-            from app.domain.puesto.entities import Puesto, TipoContratoEnum, EstadoPuestoEnum
+            from app.domain.puesto.entities import (
+                EstadoPuestoEnum,
+                Puesto,
+                Requisito,
+                TipoContratoEnum,
+            )
             
             try:
                 empresa_id = UUID(puesto_db.empresa)
-            except:
+            except (TypeError, ValueError):
                 empresa_id = UUID('00000000-0000-0000-0000-000000000000')
             
             # Convertir tipo_contrato y estado a enums
             try:
                 tipo_contrato = TipoContratoEnum(puesto_db.tipo_contrato) if puesto_db.tipo_contrato else TipoContratoEnum.TIEMPO_COMPLETO
-            except:
+            except (TypeError, ValueError):
                 tipo_contrato = TipoContratoEnum.TIEMPO_COMPLETO
             
             try:
                 estado = EstadoPuestoEnum(puesto_db.estado) if puesto_db.estado else EstadoPuestoEnum.ABIERTO
-            except:
+            except (TypeError, ValueError):
                 estado = EstadoPuestoEnum.ABIERTO
             
             puesto = Puesto(
@@ -131,14 +153,25 @@ class PuestoRepositoryImpl(PuestoRepository):
                 ubicacion=puesto_db.ubicacion or "",
                 salario_min=puesto_db.salario_min,
                 salario_max=puesto_db.salario_max,
-                moneda=puesto_db.moneda or "MXN",
+                moneda=puesto_db.moneda or "PEN",
                 tipo_contrato=tipo_contrato,
                 fecha_publicacion=puesto_db.fecha_publicacion,
                 fecha_cierre=puesto_db.fecha_cierre,
                 estado=estado
             )
             
-            puesto_aggregate = PuestoAggregate(puesto=puesto)
+            requisitos = [
+                Requisito(
+                    tipo=requisito.tipo,
+                    descripcion=requisito.descripcion,
+                    es_obligatorio=requisito.es_obligatorio,
+                )
+                for requisito in puesto_db.requisitos
+            ]
+            puesto_aggregate = PuestoAggregate(
+                puesto=puesto,
+                requisitos=requisitos,
+            )
             return puesto_aggregate
             
         finally:
@@ -164,7 +197,7 @@ class PuestoRepositoryImpl(PuestoRepository):
                         puesto_agg = self.obtener_por_id(UUID(mapeo.uuid_id))
                         if puesto_agg:
                             resultado.append(puesto_agg)
-                except:
+                except (TypeError, ValueError):
                     pass
             
             return resultado
@@ -190,7 +223,7 @@ class PuestoRepositoryImpl(PuestoRepository):
                         puesto_agg = self.obtener_por_id(UUID(mapeo.uuid_id))
                         if puesto_agg:
                             resultado.append(puesto_agg)
-                except:
+                except (TypeError, ValueError):
                     pass
             
             return resultado
@@ -214,7 +247,7 @@ class PuestoRepositoryImpl(PuestoRepository):
                         puesto_agg = self.obtener_por_id(UUID(mapeo.uuid_id))
                         if puesto_agg:
                             resultado.append(puesto_agg)
-                except:
+                except (TypeError, ValueError):
                     pass
             
             return resultado

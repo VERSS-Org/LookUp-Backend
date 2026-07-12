@@ -1,14 +1,26 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Enum as SQLAEnum, JSON
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Enum as SQLAEnum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
-from uuid import uuid4
-
 from app.infrastructure.database.connection import Base
 from app.domain.postulacion.entities import EstadoPostulacionEnum
-from app.domain.iam.entities import Cuenta
 
 class PostulacionModel(Base):
     """Modelo simplificado de la tabla de postulaciones"""
     __tablename__ = "postulaciones"
+    __table_args__ = (
+        UniqueConstraint(
+            "cuenta_id", "puesto_id", name="uq_postulacion_cuenta_puesto"
+        ),
+    )
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     postulacion_id = Column(String(36), nullable=False, unique=True)
@@ -16,6 +28,7 @@ class PostulacionModel(Base):
     puesto_id = Column(String(36), nullable=False)  # UUID string del puesto (antes Integer)
     fecha_postulacion = Column(DateTime, nullable=False)
     estado = Column(SQLAEnum(EstadoPostulacionEnum, native_enum=False), nullable=False)
+    documentos_adjuntos = Column(JSON, nullable=False, default=list)
     resultado = Column(String(100), nullable=True)
     
     # Relaciones

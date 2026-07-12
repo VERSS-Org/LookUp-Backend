@@ -1,16 +1,21 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
+from datetime import datetime
 
 from app.infrastructure.iam.security import TokenManager
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
+from app.infrastructure.iam.models import TokenModel
+from app.infrastructure.database.connection import SessionLocal
 from app.application.iam.query_handlers import ObtenerCuentaQueryHandler, ObtenerCuentaQuery
 from uuid import UUID
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
-async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def obtener_usuario_actual(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
     """
     Dependencia para obtener el usuario actual a partir del token JWT.
     
@@ -19,6 +24,13 @@ async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Dep
     async def mi_cuenta(usuario: dict = Depends(obtener_usuario_actual)):
         return usuario
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = credentials.credentials
     
     payload = TokenManager.verificar_token(token)
@@ -29,12 +41,44 @@ async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Dep
             detail="Token inválido o expirado",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if payload.get("tipo") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Se requiere un token de acceso",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    db = SessionLocal()
+    try:
+        token_persistido = db.query(TokenModel).filter(
+            TokenModel.token_value == token,
+            TokenModel.tipo_token == "access",
+            TokenModel.activo.is_(True),
+        ).first()
+        if not token_persistido or (
+            token_persistido.fecha_expiracion
+            and token_persistido.fecha_expiracion < datetime.now()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token revocado o expirado",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    finally:
+        db.close()
     
     cuenta_id = payload.get("sub")
     if not cuenta_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token sin información de usuario",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if str(token_persistido.cuenta_id) != str(cuenta_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no corresponde a la cuenta",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -49,6 +93,16 @@ async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Dep
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Cuenta no encontrada",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if (
+            not cuenta_data.get("activa", True)
+            or cuenta_data["estado"] in {"inactiva", "suspendida"}
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La cuenta no está habilitada",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -67,26 +121,3 @@ async def obtener_usuario_actual(credentials: HTTPAuthorizationCredentials = Dep
             detail="Error al verificar usuario",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-
-async def obtener_usuario_con_rol(roles_permitidos: list = None):
-    """
-    Dependencia para obtener el usuario actual y validar que tenga un rol específico.
-    
-    Uso:
-    from functools import partial
-    admin_only = partial(obtener_usuario_con_rol, roles_permitidos=["admin"])
-    
-    @router.get("/panel-admin")
-    async def panel_admin(usuario: dict = Depends(admin_only)):
-        return {"mensaje": "Bienvenido admin"}
-    """
-    async def verificar_rol(usuario: dict = Depends(obtener_usuario_actual)) -> dict:
-        if roles_permitidos and usuario["rol"] not in roles_permitidos:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Rol insuficiente. Roles permitidos: {roles_permitidos}"
-            )
-        return usuario
-    
-    return verificar_rol

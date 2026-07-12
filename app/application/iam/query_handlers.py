@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from app.domain.common import Query, QueryHandler
+from app.domain.iam.entities import EstadoCuentaEnum
 from app.domain.iam.repositories import CuentaRepository
 from app.infrastructure.iam.security import TokenManager
 
@@ -36,9 +37,11 @@ class ObtenerCuentaQueryHandler(QueryHandler):
             'telefono': cuenta.telefono,
             'ciudad': cuenta.ciudad,
             "foto_url": cuenta.foto_url,
+            "perfil": cuenta.perfil,
             "email": cuenta.credencial.email,
             "rol": cuenta.rol.value,
             "estado": cuenta.estado.value,
+            "activa": cuenta.credencial.activa,
             "fecha_creacion": cuenta.fecha_creacion,
             "fecha_actualizacion": cuenta.fecha_actualizacion,
             "fecha_primer_acceso": cuenta.fecha_primer_acceso
@@ -75,8 +78,10 @@ class ObtenerCuentaPorEmailQueryHandler(QueryHandler):
             "telefono": cuenta.telefono,
             "ciudad": cuenta.ciudad,
             "foto_url": cuenta.foto_url,
+            "perfil": cuenta.perfil,
             "rol": cuenta.rol.value,
             "estado": cuenta.estado.value,
+            "activa": cuenta.credencial.activa,
             "fecha_creacion": cuenta.fecha_creacion,
             "fecha_actualizacion": cuenta.fecha_actualizacion,
             "fecha_primer_acceso": cuenta.fecha_primer_acceso
@@ -106,20 +111,37 @@ class VerificarTokenQueryHandler(QueryHandler):
         if not payload:
             return None
 
-        cuenta_id = payload.get("sub")
-        if cuenta_id:
-            try:
-                if not self.cuenta_repository.obtener_por_id(UUID(cuenta_id)):
-                    return None
-            except (TypeError, ValueError):
-                return None
+        tipo_token = payload.get("tipo")
+        if tipo_token not in {"access", "refresh"}:
+            return None
+
+        try:
+            cuenta_id = UUID(payload["sub"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        cuenta = self.cuenta_repository.obtener_por_id(cuenta_id)
+        if (
+            not cuenta
+            or not cuenta.cuenta.credencial.activa
+            or cuenta.cuenta.estado in {
+                EstadoCuentaEnum.INACTIVA,
+                EstadoCuentaEnum.SUSPENDIDA,
+            }
+            or not self.cuenta_repository.token_esta_activo(
+                query.token,
+                cuenta_id,
+                tipo_token,
+            )
+        ):
+            return None
         
         return {
             "valido": True,
-            "cuenta_id": cuenta_id,
-            "email": payload.get("email"),
-            "rol": payload.get("rol"),
-            "tipo": payload.get("tipo")
+            "cuenta_id": str(cuenta_id),
+            "email": cuenta.cuenta.credencial.email,
+            "rol": cuenta.cuenta.rol.value,
+            "tipo": tipo_token,
         }
 
 
@@ -148,6 +170,7 @@ class ListarCuentasQueryHandler(QueryHandler):
                 'telefono': agg.cuenta.telefono,
                 'ciudad': agg.cuenta.ciudad,
                 "foto_url": agg.cuenta.foto_url,
+                "perfil": agg.cuenta.perfil,
                 "email": agg.cuenta.credencial.email,
                 "rol": agg.cuenta.rol.value,
                 "estado": agg.cuenta.estado.value,

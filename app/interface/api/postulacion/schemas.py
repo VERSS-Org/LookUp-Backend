@@ -1,8 +1,12 @@
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from enum import Enum
-from uuid import UUID
+
+from app.domain.postulacion.entities import (
+    ESTADOS_POSTULACION_CANONICOS,
+    normalizar_estado_postulacion,
+)
 
 
 # Enums para schemas
@@ -12,14 +16,6 @@ class EstadoPostulacionEnum(str, Enum):
     RECHAZADO = "rechazado"
     ACEPTADO = "aceptado"
     ENTREVISTA = "entrevista"
-    OFERTA = "oferta"
-    RECHAZO = "rechazo"
-
-
-class EstadoPublicacionEnum(str, Enum):
-    BORRADOR = "borrador"
-    PUBLICADO = "publicado"
-    CERRADO = "cerrado"
 
 
 # Schemas para Postulación
@@ -36,17 +32,18 @@ class HitoResponse(BaseModel):
 
 
 class CandidatoInfoResponse(BaseModel):
-    """Información del candidato para enriquecer postulación"""
+    """Información del postulante para enriquecer la postulación."""
     cuenta_id: str
     nombre_completo: str
     email: str
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
+    foto_url: Optional[str] = None
 
 
 class PuestoInfoResponse(BaseModel):
-    """Información del puesto para enriquecer postulación"""
+    """Información de la vacante para enriquecer la postulación."""
     puesto_id: str
     empresa_id: Optional[str] = None
     titulo: str
@@ -54,7 +51,7 @@ class PuestoInfoResponse(BaseModel):
     ubicacion: str
     salario_min: Optional[float] = None
     salario_max: Optional[float] = None
-    moneda: str = "MXN"
+    moneda: str = "PEN"
     tipo_contrato: str
 
 
@@ -63,6 +60,7 @@ class EmpresaInfoResponse(BaseModel):
     empresa_id: str
     nombre: str
     email: str
+    foto_url: Optional[str] = None
 
 
 class PostulacionResponse(BaseModel):
@@ -76,7 +74,7 @@ class PostulacionResponse(BaseModel):
 
 
 class PostulacionEnriquecidaResponse(BaseModel):
-    """Respuesta de postulación con información enriquecida de candidato, puesto y empresa"""
+    """Postulación enriquecida con datos del postulante, la vacante y la empresa."""
     postulacion_id: str
     fecha_postulacion: datetime
     estado: str
@@ -91,23 +89,10 @@ class PostulacionEnriquecidaResponse(BaseModel):
 class EstadoUpdate(BaseModel):
     nuevo_estado: str
 
-
-# Schemas para Puesto
-class PuestoCreate(BaseModel):
-    empresa_id: str
-    titulo: str
-    descripcion: str
-    requisitos: List[str]
-    fecha_inicio: Optional[str] = None
-    fecha_fin: Optional[str] = None
-
-
-class PuestoResponse(BaseModel):
-    puesto_id: str
-    empresa_id: str
-    titulo: str
-    descripcion: str
-    requisitos: List[str]
-    fecha_inicio: datetime
-    fecha_fin: Optional[datetime] = None
-    estado_publicacion: str
+    @field_validator("nuevo_estado")
+    @classmethod
+    def validar_estado(cls, value: str) -> str:
+        estado = normalizar_estado_postulacion(value)
+        if estado not in ESTADOS_POSTULACION_CANONICOS:
+            raise ValueError("Estado de postulación inválido")
+        return estado

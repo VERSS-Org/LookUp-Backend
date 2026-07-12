@@ -35,3 +35,18 @@ class CuentaRepository(ABC):
     def listar_todas(self) -> List[CuentaAggregate]:
         """Lista todas las cuentas"""
         pass
+
+    @abstractmethod
+    def revocar_tokens(self, cuenta_id: UUID) -> None:
+        """Invalida todos los tokens persistidos de una cuenta."""
+        pass
+
+    @abstractmethod
+    def token_esta_activo(
+        self,
+        token_value: str,
+        cuenta_id: UUID,
+        tipo_token: str,
+    ) -> bool:
+        """Indica si un token persistido sigue vigente para esa cuenta."""
+        pass
