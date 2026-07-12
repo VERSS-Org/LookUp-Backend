@@ -81,34 +81,37 @@ class ListarLogrosHandler(QueryHandler):
 
 
 @dataclass
-class ContadorOfertasQuery(Query):
+class ContadorAceptacionesQuery(Query):
     """
-    Query para consultar el contador de ofertas alcanzadas
-    US23: Contador de ofertas alcanzadas
+    Query para consultar el contador de postulaciones aceptadas.
     """
     postulante_id: UUID
 
 
-class ContadorOfertasQueryHandler(QueryHandler):
+class ContadorAceptacionesQueryHandler(QueryHandler):
     """
-    Manejador para consultar el contador de ofertas alcanzadas
+    Manejador para consultar el contador de postulaciones aceptadas.
     """
     
     def __init__(self, metrica_repository: MetricaRepository):
         self.metrica_repository = metrica_repository
     
-    def handle(self, query: ContadorOfertasQuery) -> Dict[str, Any]:
+    def handle(self, query: ContadorAceptacionesQuery) -> Dict[str, Any]:
         """
-        Maneja la consulta del contador de ofertas
+        Maneja la consulta del contador de aceptaciones.
         
-        Nota: El contador se calcula en tiempo real contando las postulaciones
-        que actualmente tienen estado 'oferta' en lugar de recuperar un valor almacenado.
+        El contador se calcula desde las postulaciones en estado `aceptado`.
         """
-        total_ofertas = self.metrica_repository.obtener_contador_ofertas(query.postulante_id)
+        metrica = self.metrica_repository.obtener_por_postulante(
+            query.postulante_id
+        )
+        total_aceptaciones = (
+            metrica.metrica_registro.total_exitos if metrica else 0
+        )
         
         return {
             "postulante_id": str(query.postulante_id),
-            "total_ofertas": total_ofertas
+            "total_aceptaciones": total_aceptaciones
         }
 
 
@@ -136,7 +139,12 @@ class ContadorEntrevistasQueryHandler(QueryHandler):
         Nota: El contador se calcula en tiempo real contando las postulaciones
         que actualmente tienen estado 'entrevista' en lugar de recuperar un valor almacenado.
         """
-        total_entrevistas = self.metrica_repository.obtener_contador_entrevistas(query.postulante_id)
+        metrica = self.metrica_repository.obtener_por_postulante(
+            query.postulante_id
+        )
+        total_entrevistas = (
+            metrica.metrica_registro.total_entrevistas if metrica else 0
+        )
         
         return {
             "postulante_id": str(query.postulante_id),
@@ -168,7 +176,12 @@ class ContadorRechazosQueryHandler(QueryHandler):
         Nota: El contador se calcula en tiempo real contando las postulaciones
         que actualmente tienen estado 'rechazado' en lugar de recuperar un valor almacenado.
         """
-        total_rechazos = self.metrica_repository.obtener_contador_rechazos(query.postulante_id)
+        metrica = self.metrica_repository.obtener_por_postulante(
+            query.postulante_id
+        )
+        total_rechazos = (
+            metrica.metrica_registro.total_rechazos if metrica else 0
+        )
         
         return {
             "postulante_id": str(query.postulante_id),

@@ -1,191 +1,113 @@
-from typing import Optional, List, Dict, Any
-from uuid import UUID
+from collections import Counter
 from datetime import datetime
-from sqlalchemy import func, case, and_
+from typing import List, Optional
+from uuid import UUID
 
-from app.domain.metrica.entities import (
-    MetricaRegistro, Logro, MetricaAggregate
-)
+from sqlalchemy import func
+
+from app.domain.metrica.entities import Logro, MetricaAggregate, MetricaRegistro
 from app.domain.metrica.repositories import MetricaRepository
+from app.domain.postulacion.entities import normalizar_estado_postulacion
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.postulacion.models import PostulacionModel
 
 
 class MetricaRepositoryImpl(MetricaRepository):
-    """
-    Implementación del repositorio de métricas con SQLAlchemy
-    Esta implementación no almacena datos, sino que calcula métricas en tiempo real
-    basándose en los datos de postulaciones. Funciona como una capa de proyección
-    que calcula métricas bajo demanda a partir del estado actual de las postulaciones.
-    """
-    
-    def __init__(self):
-        """Inicializador del repositorio de métricas"""
-        # No necesitamos inicializar ningún modelo ya que calculamos en tiempo real
-        pass
-    
-    def obtener_por_postulante(self, postulante_id: UUID) -> Optional[MetricaAggregate]:
-        """Calcula las métricas de un postulante en tiempo real basado en sus postulaciones"""
+    """Proyeccion de metricas calculada desde las postulaciones actuales."""
+
+    def obtener_por_postulante(
+        self, postulante_id: UUID
+    ) -> Optional[MetricaAggregate]:
         db = SessionLocal()
         try:
-            # Contar el total de postulaciones
-            total_postulaciones = db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id)
-            ).scalar() or 0
-            
-            # No hay postulaciones, retornar métricas en ceros
-            if total_postulaciones == 0:
-                return MetricaAggregate(
-                    metrica_registro=MetricaRegistro(
-                        cuenta_id=postulante_id,
-                        total_postulaciones=0,
-                        total_entrevistas=0,
-                        total_exitos=0,
-                        total_rechazos=0,
-                        tasa_exito=0.0
-                    ),
-                    lista_logros=[]
+            # SQLAlchemy persiste los nombres del Enum (p. ej. ENTREVISTA), no
+            # sus valores en minuscula. Agrupar por Enum y normalizar despues
+            # evita contadores en cero y conserva lectura de estados antiguos.
+            filas = (
+                db.query(
+                    PostulacionModel.estado,
+                    func.count(PostulacionModel.id),
                 )
-            
-            # Contar entrevistas
-            total_entrevistas = db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado == "entrevista"
-            ).scalar() or 0
-            
-            # Contar ofertas (éxitos)
-            total_exitos = db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado == "oferta"
-            ).scalar() or 0
-            
-            # Contar rechazos
-            total_rechazos = db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado.in_(["rechazado", "rechazo"])
-            ).scalar() or 0
-            
-            # Calcular tasa de éxito (ofertas sobre total de postulaciones)
-            tasa_exito = (total_exitos / total_postulaciones) * 100 if total_postulaciones > 0 else 0.0
-            
-            # Crear métricas
-            metrica_registro = MetricaRegistro(
+                .filter(PostulacionModel.cuenta_id == str(postulante_id))
+                .group_by(PostulacionModel.estado)
+                .all()
+            )
+
+            conteos = Counter()
+            for estado, total in filas:
+                conteos[normalizar_estado_postulacion(estado)] += int(total)
+
+            total_postulaciones = sum(conteos.values())
+            total_entrevistas = conteos["entrevista"]
+            total_exitos = conteos["aceptado"]
+            total_rechazos = conteos["rechazado"]
+            tasa_exito = (
+                (total_exitos / total_postulaciones) * 100
+                if total_postulaciones
+                else 0.0
+            )
+
+            registro = MetricaRegistro(
                 cuenta_id=postulante_id,
                 total_postulaciones=total_postulaciones,
                 total_entrevistas=total_entrevistas,
                 total_exitos=total_exitos,
                 total_rechazos=total_rechazos,
-                tasa_exito=tasa_exito
+                tasa_exito=tasa_exito,
             )
-            
-            # Determinar logros basados en métricas
-            lista_logros = self._calcular_logros(
-                postulante_id, 
-                total_postulaciones, 
-                total_entrevistas, 
-                total_exitos,
-                total_rechazos
-            )
-            
             return MetricaAggregate(
-                metrica_registro=metrica_registro,
-                lista_logros=lista_logros
+                metrica_registro=registro,
+                lista_logros=self._calcular_logros(
+                    total_postulaciones,
+                    total_entrevistas,
+                    total_exitos,
+                ),
             )
-            
         finally:
             db.close()
-    
-    def _calcular_logros(self, 
-                         postulante_id: UUID, 
-                         total_postulaciones: int, 
-                         total_entrevistas: int,
-                         total_exitos: int,
-                         total_rechazos: int) -> List[Logro]:
-        """Calcula los logros basados en las métricas"""
+
+    @staticmethod
+    def _calcular_logros(
+        total_postulaciones: int,
+        total_entrevistas: int,
+        total_exitos: int,
+    ) -> List[Logro]:
         logros = []
-        
-        # Ejemplos de logros según hitos alcanzados
+
         if total_postulaciones >= 10:
-            logros.append(Logro(
-                nombre_logro="Postulante Activo",
-                umbral=10,
-                fecha_obtencion=datetime.now()
-            ))
-            
+            logros.append(
+                Logro(
+                    nombre_logro="Postulante Activo",
+                    umbral=10,
+                    fecha_obtencion=datetime.now(),
+                )
+            )
+
         if total_entrevistas >= 5:
-            logros.append(Logro(
-                nombre_logro="Entrevistado Frecuente",
-                umbral=5,
-                fecha_obtencion=datetime.now()
-            ))
-            
+            logros.append(
+                Logro(
+                    nombre_logro="Entrevistado Frecuente",
+                    umbral=5,
+                    fecha_obtencion=datetime.now(),
+                )
+            )
+
         if total_exitos >= 1:
-            logros.append(Logro(
-                nombre_logro="Primera Oferta",
-                umbral=1,
-                fecha_obtencion=datetime.now()
-            ))
-            
+            logros.append(
+                Logro(
+                    nombre_logro="Primera Aceptación",
+                    umbral=1,
+                    fecha_obtencion=datetime.now(),
+                )
+            )
+
         if total_exitos >= 3:
-            logros.append(Logro(
-                nombre_logro="Candidato Destacado",
-                umbral=3,
-                fecha_obtencion=datetime.now()
-            ))
-            
+            logros.append(
+                Logro(
+                    nombre_logro="Postulante Destacado",
+                    umbral=3,
+                    fecha_obtencion=datetime.now(),
+                )
+            )
+
         return logros
-    
-    def obtener_contador_ofertas(self, postulante_id: UUID) -> int:
-        """
-        Devuelve el contador de ofertas alcanzadas para un postulante
-        US23: Contador de ofertas alcanzadas
-        """
-        db = SessionLocal()
-        try:
-            # Contar ofertas directamente desde la base de datos
-            return db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado == "oferta"
-            ).scalar() or 0
-        finally:
-            db.close()
-    
-    def obtener_contador_entrevistas(self, postulante_id: UUID) -> int:
-        """
-        Devuelve el contador de entrevistas obtenidas para un postulante
-        US22: Contador de entrevistas obtenidas
-        """
-        db = SessionLocal()
-        try:
-            # Contar entrevistas directamente desde la base de datos
-            return db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado == "entrevista"
-            ).scalar() or 0
-        finally:
-            db.close()
-    
-    def obtener_contador_rechazos(self, postulante_id: UUID) -> int:
-        """
-        Devuelve el contador de rechazos acumulados para un postulante
-        US24: Contador de rechazos acumulados
-        """
-        db = SessionLocal()
-        try:
-            # Contar rechazos directamente desde la base de datos
-            return db.query(func.count(PostulacionModel.id)).filter(
-                PostulacionModel.cuenta_id == str(postulante_id),
-                PostulacionModel.estado.in_(["rechazado", "rechazo"])
-            ).scalar() or 0
-        finally:
-            db.close()
-    
-    def guardar(self, metrica_aggregate: MetricaAggregate) -> UUID:
-        """
-        Método mantenido por compatibilidad con la interfaz pero no realiza ninguna operación
-        de almacenamiento. Las métricas se calculan en tiempo real y no se almacenan.
-        
-        Al ser un bounded context de solo lectura, no hay necesidad de persistir el estado
-        ya que se deriva completamente de otros bounded contexts (postulación).
-        """
-        return metrica_aggregate.metrica_registro.cuenta_id

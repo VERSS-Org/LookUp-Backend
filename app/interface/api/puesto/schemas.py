@@ -1,10 +1,20 @@
-from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-# Enums para schemas
+def _validar_rango_salarial(
+    salario_min: Optional[float], salario_max: Optional[float]
+) -> None:
+    for etiqueta, valor in (("salario_min", salario_min), ("salario_max", salario_max)):
+        if valor is not None and valor < 0:
+            raise ValueError(f"{etiqueta} no puede ser negativo")
+    if salario_min is not None and salario_max is not None and salario_max < salario_min:
+        raise ValueError("salario_max no puede ser menor que salario_min")
+
+
 class EstadoPuestoEnum(str, Enum):
     ABIERTO = "abierto"
     CERRADO = "cerrado"
@@ -18,11 +28,18 @@ class TipoContratoEnum(str, Enum):
     PRACTICAS = "practicas"
 
 
-# Schemas para Requisito
 class RequisitoCreate(BaseModel):
-    tipo: str = Field(..., example="experiencia", description="Tipo de requisito")
-    descripcion: str = Field(..., example="3 años de experiencia en desarrollo web", description="Descripción del requisito")
-    es_obligatorio: bool = Field(True, description="Indica si el requisito es obligatorio")
+    tipo: str = Field(min_length=1, max_length=100)
+    descripcion: str = Field(min_length=1, max_length=1000)
+    es_obligatorio: bool = True
+
+    @field_validator("tipo", "descripcion")
+    @classmethod
+    def validar_texto(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("El requisito no puede estar vacío")
+        return value
 
 
 class RequisitoResponse(BaseModel):
@@ -31,33 +48,72 @@ class RequisitoResponse(BaseModel):
     es_obligatorio: bool
 
 
-# Schemas para Puesto
 class PuestoCreate(BaseModel):
-    empresa_id: str = Field(..., example="550e8400-e29b-41d4-a716-446655440000", description="ID de la empresa que crea el puesto")
-    titulo: str = Field(..., example="Desarrollador Full Stack", description="Título del puesto")
-    descripcion: str = Field(..., example="Puesto para desarrollador con experiencia en React y Node.js", description="Descripción del puesto")
-    ubicacion: str = Field(..., example="Ciudad de México", description="Ubicación del puesto")
-    salario_min: Optional[float] = Field(None, example=20000, description="Salario mínimo ofrecido")
-    salario_max: Optional[float] = Field(None, example=30000, description="Salario máximo ofrecido")
-    moneda: str = Field("MXN", example="MXN", description="Moneda del salario")
-    tipo_contrato: TipoContratoEnum = Field(TipoContratoEnum.TIEMPO_COMPLETO, description="Tipo de contrato ofrecido")
-    requisitos: List[RequisitoCreate] = Field([], description="Lista de requisitos para el puesto")
+    empresa_id: str
+    titulo: str = Field(min_length=1, max_length=300)
+    descripcion: str = Field(min_length=1, max_length=5000)
+    ubicacion: str = Field(min_length=1, max_length=300)
+    salario_min: Optional[float] = None
+    salario_max: Optional[float] = None
+    moneda: str = Field("PEN", min_length=3, max_length=10)
+    tipo_contrato: TipoContratoEnum = TipoContratoEnum.TIEMPO_COMPLETO
+    requisitos: List[RequisitoCreate] = Field(default_factory=list)
+
+    @field_validator("titulo", "descripcion", "ubicacion")
+    @classmethod
+    def validar_texto_no_vacio(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("El campo no puede estar vacío")
+        return value
+
+    @field_validator("moneda")
+    @classmethod
+    def normalizar_moneda(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @model_validator(mode="after")
+    def validar_salarios(self):
+        _validar_rango_salarial(self.salario_min, self.salario_max)
+        return self
 
 
 class PuestoUpdate(BaseModel):
-    titulo: Optional[str] = Field(None, example="Desarrollador Full Stack Senior", description="Título del puesto")
-    descripcion: Optional[str] = Field(None, example="Puesto actualizado para desarrollador con experiencia en React y Node.js", description="Descripción del puesto")
-    ubicacion: Optional[str] = Field(None, example="Guadalajara", description="Ubicación del puesto")
-    salario_min: Optional[float] = Field(None, example=25000, description="Salario mínimo ofrecido")
-    salario_max: Optional[float] = Field(None, example=35000, description="Salario máximo ofrecido")
-    moneda: Optional[str] = Field(None, example="MXN", description="Moneda del salario")
-    tipo_contrato: Optional[TipoContratoEnum] = Field(None, description="Tipo de contrato ofrecido")
-    requisitos: Optional[List[RequisitoCreate]] = Field(None, description="Lista actualizada de requisitos para el puesto")
+    titulo: Optional[str] = Field(None, min_length=1, max_length=300)
+    descripcion: Optional[str] = Field(None, min_length=1, max_length=5000)
+    ubicacion: Optional[str] = Field(None, min_length=1, max_length=300)
+    salario_min: Optional[float] = None
+    salario_max: Optional[float] = None
+    moneda: Optional[str] = Field(None, min_length=3, max_length=10)
+    tipo_contrato: Optional[TipoContratoEnum] = None
+    requisitos: Optional[List[RequisitoCreate]] = None
+
+    @field_validator("titulo", "descripcion", "ubicacion")
+    @classmethod
+    def validar_texto_no_vacio(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("El campo no puede estar vacío")
+        return value
+
+    @field_validator("moneda")
+    @classmethod
+    def normalizar_moneda(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip().upper() if value is not None else None
+
+    @model_validator(mode="after")
+    def validar_salarios(self):
+        _validar_rango_salarial(self.salario_min, self.salario_max)
+        return self
 
 
 class PuestoResponse(BaseModel):
     puesto_id: str
     empresa_id: str
+    empresa_nombre: Optional[str] = None
+    empresa_foto: Optional[str] = None
     titulo: str
     descripcion: str
     ubicacion: str
@@ -72,10 +128,4 @@ class PuestoResponse(BaseModel):
 
 
 class EstadoPuestoUpdate(BaseModel):
-    nuevo_estado: EstadoPuestoEnum = Field(..., example="cerrado", description="Nuevo estado del puesto (abierto/cerrado)")
-
-    @validator('nuevo_estado')
-    def validate_estado(cls, v):
-        if v not in [EstadoPuestoEnum.ABIERTO, EstadoPuestoEnum.CERRADO]:
-            raise ValueError('El estado debe ser "abierto" o "cerrado"')
-        return v
+    nuevo_estado: EstadoPuestoEnum

@@ -1,7 +1,5 @@
-from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 from datetime import datetime
-from uuid import UUID
 
 
 # Schemas para Métricas (calculadas en tiempo real)

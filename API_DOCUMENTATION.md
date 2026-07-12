@@ -2,9 +2,27 @@
 
 ## Overview
 
-This is a complete REST API backend for a job application platform built with **FastAPI** and **Supabase (PostgreSQL)**.
+This is a complete REST API backend for a job application platform built with **FastAPI** and **PostgreSQL** (compatible with Supabase).
 
-**Base URL**: `https://backend-ufl2-c1kdvh50n-glitter22s-projects.vercel.app/`
+**Base URL (local)**: `http://localhost:8000/`
+
+> **Nota (2026-07):** este documento describe la versión original de la API. La
+> implementación actual difiere en algunos puntos; la fuente de verdad es la
+> documentación interactiva en `http://localhost:8000/docs`. Cambios clave:
+>
+> - Todos los endpoints de negocio (vacantes, postulaciones, mensajería, métricas,
+>   cuenta) requieren `Authorization: Bearer <access_token>` y validan la
+>   propiedad del recurso segun el rol (`postulante`/`empresa`).
+> - `POST /api/iam/registrar` solo acepta los roles `postulante` y `empresa`.
+> - Endpoints agregados: `GET /api/iam/me`, `PATCH /api/iam/cuenta/{id}`,
+>   `POST /api/iam/cuenta/{id}/foto` (foto de perfil, max 3 MB),
+>   `POST /api/contacto/mensaje` (mensaje del hilo de una postulación) y
+>   `GET /api/contacto/?postulacion_id=...`.
+> - El feedback `aprobacion`/`rechazo` actualiza automaticamente el estado de la
+>   postulación a `aceptado`/`rechazado` si la transición es válida.
+> - `POST /api/puesto/` y `PUT /api/puesto/{id}` crean y actualizan vacantes y
+>   validan el rango salarial
+>   (`salario_max >= salario_min >= 0`).
 
 ---
 
@@ -12,8 +30,8 @@ This is a complete REST API backend for a job application platform built with **
 
 1. [IAM (Authentication) Endpoints](#iam-authentication-endpoints)
 2. [Postulación (Job Application) Endpoints](#postulación-job-application-endpoints)
-3. [Puesto (Job Position) Endpoints](#puesto-job-position-endpoints)
-4. [Contacto (Contact/Feedback) Endpoints](#contacto-contactfeedback-endpoints)
+3. [Vacantes (Job Openings) Endpoints](#vacantes-job-openings-endpoints)
+4. [Mensajería (Contact/Feedback) Endpoints](#mensajería-contactfeedback-endpoints)
 5. [Métricas (Metrics) Endpoints](#métricas-metrics-endpoints)
 6. [Error Handling](#error-handling)
 7. [Authentication](#authentication)
@@ -111,40 +129,7 @@ Base URL: `/api/iam`
 
 ---
 
-### 3. Verify Account
-
-**Endpoint**: `POST /iam/verificar-cuenta`
-
-**Purpose**: Verify user account using verification code sent to email
-
-**Request Body**:
-```json
-{
-  "cuenta_id": "550e8400-e29b-41d4-a716-446655440000",
-  "codigo_verificacion": "ABC123"
-}
-```
-
-**Parameters**:
-- `cuenta_id` (string, required): Account ID to verify
-- `codigo_verificacion` (string, required): Verification code sent to email
-
-**Response** (200 OK):
-```json
-{
-  "mensaje": "Cuenta verificada exitosamente",
-  "cuenta_id": "550e8400-e29b-41d4-a716-446655440000",
-  "estado": "activo"
-}
-```
-
-**Error Responses**:
-- `400 Bad Request`: Invalid verification code
-- `400 Bad Request`: Account verification error
-
----
-
-### 4. Refresh Token
+### 3. Refresh Token
 
 **Endpoint**: `POST /iam/refresh-token`
 
@@ -178,7 +163,7 @@ Base URL: `/api/iam`
 
 ---
 
-### 5. Change Password
+### 4. Change Password
 
 **Endpoint**: `POST /iam/cambiar-password`
 
@@ -211,7 +196,7 @@ Base URL: `/api/iam`
 
 ---
 
-### 6. Get Account Info
+### 5. Get Account Info
 
 **Endpoint**: `GET /iam/cuenta/{cuenta_id}`
 
@@ -243,7 +228,7 @@ Base URL: `/api/iam`
 
 ---
 
-### 7. Get Account by Email
+### 6. Get Account by Email
 
 **Endpoint**: `GET /iam/cuenta/email/{email}`
 
@@ -275,7 +260,7 @@ Base URL: `/api/iam`
 
 ---
 
-### 8. Verify Token
+### 7. Verify Token
 
 **Endpoint**: `POST /iam/verificar-token`
 
@@ -323,12 +308,12 @@ Base URL: `/api/postulacion`
 All postulacion endpoints automatically enrich responses with related data:
 
 **Enriched Data Includes**:
-- **Candidato**: Full candidate information (name, email, career, phone, city)
-- **Puesto**: Complete job position details (title, description, location, salary, contract type)
+- **Postulante**: Full applicant information (name, email, career, phone, city)
+- **Vacante**: Complete vacancy details (title, description, location, salary, contract type)
 - **Empresa**: Company information (name, email)
 
 **Why?** 
-The frontend no longer needs to make separate API calls to fetch candidate, job, and company information. All related data is returned in a single response, reducing API calls and improving performance.
+The frontend no longer needs to make separate API calls to fetch applicant, vacancy, and company information. All related data is returned in a single response, reducing API calls and improving performance.
 
 **Disabling Enrichment**:
 If you only need basic data, add `?enriquecer=false` to the list endpoint:
@@ -359,7 +344,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 
 **Parameters**:
 - `candidato_id` (string, required): ID of the job applicant
-- `puesto_id` (string, required): ID of the job position
+- `puesto_id` (string, required): ID of the vacancy
 - `documentos_adjuntos` (array, optional): Array of attached documents with name, url, and type
 
 **Response** (201 Created):
@@ -391,7 +376,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
     "ubicacion": "Ciudad de México",
     "salario_min": 25000,
     "salario_max": 35000,
-    "moneda": "MXN",
+    "moneda": "PEN",
     "tipo_contrato": "tiempo_completo",
     "empresa_id": "550e8400-e29b-41d4-a716-446655440000"
   },
@@ -404,7 +389,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 ```
 
 **Error Responses**:
-- `400 Bad Request`: Invalid data or job position not found
+- `400 Bad Request`: Invalid data or vacancy not found
 
 ---
 
@@ -452,7 +437,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
     "ubicacion": "Ciudad de México",
     "salario_min": 25000,
     "salario_max": 35000,
-    "moneda": "MXN",
+    "moneda": "PEN",
     "tipo_contrato": "tiempo_completo",
     "empresa_id": "550e8400-e29b-41d4-a716-446655440000"
   },
@@ -477,8 +462,8 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 
 **Query Parameters**:
 - `candidato_id` (string, optional): Filter by applicant ID
-- `puesto_id` (string, optional): Filter by job position ID
-- `estado` (string, optional): Filter by application status (pendiente, en_revision, rechazado, aceptado, entrevista, oferta)
+- `puesto_id` (string, optional): Filter by vacancy ID
+- `estado` (string, optional): Filter by application status (pendiente, en_revision, entrevista, aceptado, rechazado)
 - `enriquecer` (boolean, optional): Include enriched data (default: true) - set to false to get only basic info
 
 **Response** (200 OK) - With enrichment (default):
@@ -505,7 +490,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
       "ubicacion": "Ciudad de México",
       "salario_min": 25000,
       "salario_max": 35000,
-      "moneda": "MXN",
+      "moneda": "PEN",
       "tipo_contrato": "tiempo_completo",
       "empresa_id": "550e8400-e29b-41d4-a716-446655440000"
     },
@@ -555,7 +540,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 ```
 
 **Parameters**:
-- `nuevo_estado` (string, required): New status - Valid values: pendiente, en_revision, rechazado, aceptado, entrevista, oferta
+- `nuevo_estado` (string, required): New status - Valid values: pendiente, en_revision, entrevista, aceptado, rechazado
 
 **Response** (200 OK):
 ```json
@@ -580,7 +565,7 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
     "ubicacion": "Ciudad de México",
     "salario_min": 25000,
     "salario_max": 35000,
-    "moneda": "MXN",
+    "moneda": "PEN",
     "tipo_contrato": "tiempo_completo",
     "empresa_id": "550e8400-e29b-41d4-a716-446655440000"
   },
@@ -598,15 +583,15 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 
 ---
 
-## Puesto (Job Position) Endpoints
+## Vacantes (Job Openings) Endpoints
 
 Base URL: `/api/puesto`
 
-### 1. Create Job Position
+### 1. Create Job Opening
 
 **Endpoint**: `POST /puesto/`
 
-**Purpose**: Create a new job position
+**Purpose**: Create a new vacancy for the authenticated company
 
 **Request Body**:
 ```json
@@ -617,7 +602,7 @@ Base URL: `/api/puesto`
   "ubicacion": "Ciudad de México",
   "salario_min": 25000,
   "salario_max": 35000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "requisitos": [
     {
@@ -641,7 +626,7 @@ Base URL: `/api/puesto`
 - `ubicacion` (string, required): Job location
 - `salario_min` (number, optional): Minimum salary offered
 - `salario_max` (number, optional): Maximum salary offered
-- `moneda` (string, optional): Salary currency - default: MXN
+- `moneda` (string, optional): Salary currency - default: PEN
 - `tipo_contrato` (string, required): Contract type - Valid values: tiempo_completo, medio_tiempo, temporal, freelance, practicas
 - `requisitos` (array, optional): List of requirements with type, description, and es_obligatorio flag
 
@@ -655,7 +640,7 @@ Base URL: `/api/puesto`
   "ubicacion": "Ciudad de México",
   "salario_min": 25000,
   "salario_max": 35000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "fecha_publicacion": "2025-11-30T10:30:00",
   "fecha_cierre": null,
@@ -680,14 +665,14 @@ Base URL: `/api/puesto`
 
 ---
 
-### 2. Get Job Position
+### 2. Get Job Opening
 
 **Endpoint**: `GET /puesto/{puesto_id}`
 
-**Purpose**: Retrieve details of a specific job position
+**Purpose**: Retrieve details of a specific vacancy
 
 **Path Parameters**:
-- `puesto_id` (string, required): ID of the job position
+- `puesto_id` (string, required): ID of the vacancy
 
 **Response** (200 OK):
 ```json
@@ -699,7 +684,7 @@ Base URL: `/api/puesto`
   "ubicacion": "Ciudad de México",
   "salario_min": 25000,
   "salario_max": 35000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "fecha_publicacion": "2025-11-30T10:30:00",
   "fecha_cierre": null,
@@ -719,11 +704,11 @@ Base URL: `/api/puesto`
 
 ---
 
-### 3. List Job Positions
+### 3. List Job Openings
 
 **Endpoint**: `GET /puesto/`
 
-**Purpose**: List all job positions with optional filters
+**Purpose**: List vacancies allowed for the authenticated role
 
 **Query Parameters**:
 - `empresa_id` (string, optional): Filter by company ID
@@ -740,7 +725,7 @@ Base URL: `/api/puesto`
     "ubicacion": "Ciudad de México",
     "salario_min": 25000,
     "salario_max": 35000,
-    "moneda": "MXN",
+    "moneda": "PEN",
     "tipo_contrato": "tiempo_completo",
     "fecha_publicacion": "2025-11-30T10:30:00",
     "fecha_cierre": null,
@@ -755,14 +740,14 @@ Base URL: `/api/puesto`
 
 ---
 
-### 4. Update Job Position
+### 4. Update Job Opening
 
 **Endpoint**: `PUT /puesto/{puesto_id}`
 
-**Purpose**: Update a job position details
+**Purpose**: Update a vacancy owned by the authenticated company
 
 **Path Parameters**:
-- `puesto_id` (string, required): ID of the job position
+- `puesto_id` (string, required): ID of the vacancy
 
 **Request Body** (all fields optional):
 ```json
@@ -772,11 +757,14 @@ Base URL: `/api/puesto`
   "ubicacion": "Guadalajara",
   "salario_min": 28000,
   "salario_max": 38000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "requisitos": []
 }
 ```
+
+An omitted salary field keeps its current value; an explicit `null` removes
+that minimum or maximum limit.
 
 **Response** (200 OK):
 ```json
@@ -788,7 +776,7 @@ Base URL: `/api/puesto`
   "ubicacion": "Guadalajara",
   "salario_min": 28000,
   "salario_max": 38000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "fecha_publicacion": "2025-11-30T10:30:00",
   "fecha_cierre": null,
@@ -803,14 +791,14 @@ Base URL: `/api/puesto`
 
 ---
 
-### 5. Change Job Position Status
+### 5. Change Job Opening Status
 
 **Endpoint**: `PATCH /puesto/{puesto_id}/estado`
 
-**Purpose**: Change the status of a job position between open and closed
+**Purpose**: Change the status of a vacancy between open and closed
 
 **Path Parameters**:
-- `puesto_id` (string, required): ID of the job position
+- `puesto_id` (string, required): ID of the vacancy
 
 **Request Body**:
 ```json
@@ -832,7 +820,7 @@ Base URL: `/api/puesto`
   "ubicacion": "Ciudad de México",
   "salario_min": 25000,
   "salario_max": 35000,
-  "moneda": "MXN",
+  "moneda": "PEN",
   "tipo_contrato": "tiempo_completo",
   "fecha_publicacion": "2025-11-30T10:30:00",
   "fecha_cierre": "2025-11-30T16:00:00",
@@ -847,7 +835,7 @@ Base URL: `/api/puesto`
 
 ---
 
-## Contacto (Contact/Feedback) Endpoints
+## Mensajería (Contact/Feedback) Endpoints
 
 Base URL: `/api/contacto`
 
@@ -997,11 +985,11 @@ Base URL: `/api/metricas`
 
 ---
 
-### 4. Get Offers Counter
+### 4. Get Accepted Applications Counter
 
 **Endpoint**: `GET /metricas/contadores/ofertas/{postulante_id}`
 
-**Purpose**: Get the count of offers received for a specific applicant
+**Purpose**: Get the count of accepted applications for the authenticated applicant
 
 **Path Parameters**:
 - `postulante_id` (UUID, required): Applicant ID
@@ -1101,7 +1089,7 @@ Authorization: Bearer {access_token}
 
 ### Token Structure
 
-- **Access Token**: Short-lived token (15 minutes) for API requests
+- **Access Token**: Short-lived token (30 minutes by default) for API requests
 - **Refresh Token**: Long-lived token (7 days) for obtaining new access tokens
 
 ### Example Request with Auth
@@ -1129,9 +1117,8 @@ ISO 8601 format: `2025-11-30T10:30:00`
 - `rechazado` - Rejected
 - `aceptado` - Accepted
 - `entrevista` - Interview
-- `oferta` - Offer
 
-**Job Position Status**:
+**Vacancy Status**:
 - `abierto` - Open
 - `cerrado` - Closed
 
@@ -1142,11 +1129,10 @@ ISO 8601 format: `2025-11-30T10:30:00`
 - `freelance` - Freelance
 - `practicas` - Internship
 
-**Contact Type**:
-- `email` - Email
-- `llamada` - Phone call
-- `entrevista` - Interview
-- `otro` - Other
+**Message Type**:
+- `solicitud_info` - Information request
+- `feedback` - Selection feedback
+- `actualizacion` - Conversation message
 
 **Feedback Type**:
 - `aprobacion` - Approval
@@ -1157,7 +1143,6 @@ ISO 8601 format: `2025-11-30T10:30:00`
 **User Role**:
 - `postulante` - Job applicant
 - `empresa` - Company
-- `admin` - Administrator
 
 ---
 

@@ -1,10 +1,16 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-from uuid import UUID
+from uuid import uuid4
 from jose import jwt, JWTError
 import bcrypt
 
 from app.config import settings
+
+MAX_PASSWORD_BYTES = 72
+
+
+def _ahora_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class TokenManager:
@@ -19,13 +25,17 @@ class TokenManager:
         to_encode = data.copy()
         
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = _ahora_utc() + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = _ahora_utc() + timedelta(
                 minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
             )
         
-        to_encode.update({"exp": expire})
+        to_encode.update({
+            "exp": expire,
+            "iat": _ahora_utc(),
+            "jti": str(uuid4()),
+        })
         
         encoded_jwt = jwt.encode(
             to_encode,
@@ -44,12 +54,16 @@ class TokenManager:
         to_encode = data.copy()
         
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = _ahora_utc() + expires_delta
         else:
             # Los refresh tokens duran 7 días
-            expire = datetime.utcnow() + timedelta(days=7)
+            expire = _ahora_utc() + timedelta(days=7)
         
-        to_encode.update({"exp": expire})
+        to_encode.update({
+            "exp": expire,
+            "iat": _ahora_utc(),
+            "jti": str(uuid4()),
+        })
         
         encoded_jwt = jwt.encode(
             to_encode,
@@ -83,8 +97,12 @@ class TokenManager:
         }
         
         to_encode = data.copy()
-        expire = datetime.utcnow() + timedelta(hours=24)
-        to_encode.update({"exp": expire})
+        expire = _ahora_utc() + timedelta(hours=24)
+        to_encode.update({
+            "exp": expire,
+            "iat": _ahora_utc(),
+            "jti": str(uuid4()),
+        })
         
         encoded_jwt = jwt.encode(
             to_encode,
@@ -109,10 +127,11 @@ class PasswordManager:
         if password.startswith('$2b$') or password.startswith('$2y$') or password.startswith('$2a$'):
             raise ValueError("Password appears to be already hashed")
         
-        # Encode to bytes and truncate to 72 bytes (bcrypt limit)
+        # bcrypt solo procesa 72 bytes. Rechazar evita contrasenas distintas
+        # que compartan el mismo prefijo efectivo.
         password_bytes = password.encode('utf-8')
-        if len(password_bytes) > 72:
-            password_bytes = password_bytes[:72]
+        if len(password_bytes) > MAX_PASSWORD_BYTES:
+            raise ValueError("La contrasena no puede superar 72 bytes")
         
         # Hash using bcrypt with rounds=12
         salt = bcrypt.gensalt(rounds=12)
@@ -133,19 +152,28 @@ class PasswordManager:
         # Encode password to bytes
         password_bytes = password.encode('utf-8')
         
-        # Truncate to 72 bytes if needed
-        if len(password_bytes) > 72:
-            password_bytes = password_bytes[:72]
+        # Nunca truncar: bcrypt ignoraria el sufijo y dos contrasenas largas
+        # distintas podrian autenticarse contra el mismo hash.
+        if len(password_bytes) > MAX_PASSWORD_BYTES:
+            return False
         
         # Encode hash_password to bytes if needed
         hash_bytes = hash_password.encode('utf-8') if isinstance(hash_password, str) else hash_password
         
-        # Verify
-        return bcrypt.checkpw(password_bytes, hash_bytes)
+        try:
+            return bcrypt.checkpw(password_bytes, hash_bytes)
+        except (TypeError, ValueError):
+            return False
     
     @staticmethod
     def es_password_fuerte(password: str) -> bool:
         """Verifica si una contraseña cumple requisitos mínimos de seguridad"""
+        if (
+            not isinstance(password, str)
+            or len(password.encode("utf-8")) > MAX_PASSWORD_BYTES
+        ):
+            return False
+
         # Mínimo 8 caracteres
         if len(password) < 8:
             return False

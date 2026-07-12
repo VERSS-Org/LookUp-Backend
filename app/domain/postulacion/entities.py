@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from uuid import UUID, uuid4
 
 from app.domain.common import AggregateRoot
@@ -18,6 +18,31 @@ class EstadoPostulacionEnum(str, Enum):
     RECHAZO = "rechazo"
 
 
+ESTADOS_POSTULACION_CANONICOS = {
+    "pendiente",
+    "en_revision",
+    "entrevista",
+    "aceptado",
+    "rechazado",
+}
+
+ALIASES_ESTADO_POSTULACION = {
+    "oferta": "aceptado",
+    "rechazo": "rechazado",
+}
+
+
+def normalizar_estado_postulacion(estado: object) -> str:
+    """Devuelve la terminologia publica canonica de un estado.
+
+    ``oferta`` y ``rechazo`` se conservan para leer datos y clientes antiguos,
+    pero no deben propagarse como estados nuevos en la API.
+    """
+    valor = estado.value if isinstance(estado, EstadoPostulacionEnum) else str(estado)
+    valor = valor.strip().lower()
+    return ALIASES_ESTADO_POSTULACION.get(valor, valor)
+
+
 @dataclass(frozen=True)
 class EstadoPostulacion:
     """Value Object que representa los estados posibles de una postulación"""
@@ -27,45 +52,19 @@ class EstadoPostulacion:
         """
         Valida si el cambio de estado es permitido según las reglas de negocio
         """
-        # Definimos las transiciones de estado permitidas
-        transiciones_permitidas = {
-            EstadoPostulacionEnum.PENDIENTE: [
-                EstadoPostulacionEnum.EN_REVISION, 
-                EstadoPostulacionEnum.RECHAZADO,
-                EstadoPostulacionEnum.ENTREVISTA,
-                EstadoPostulacionEnum.ACEPTADO,
-                EstadoPostulacionEnum.OFERTA,
-                EstadoPostulacionEnum.RECHAZO
-            ],
-            EstadoPostulacionEnum.EN_REVISION: [
-                EstadoPostulacionEnum.ACEPTADO,
-                EstadoPostulacionEnum.RECHAZADO,
-                EstadoPostulacionEnum.ENTREVISTA, 
-                EstadoPostulacionEnum.OFERTA,
-                EstadoPostulacionEnum.RECHAZO
-            ],
-            EstadoPostulacionEnum.ACEPTADO: [
-                EstadoPostulacionEnum.ENTREVISTA,
-                EstadoPostulacionEnum.OFERTA,
-                EstadoPostulacionEnum.RECHAZADO,
-                EstadoPostulacionEnum.RECHAZO
-            ],
-            EstadoPostulacionEnum.RECHAZADO: [],  # Estado final no permite cambios
-            EstadoPostulacionEnum.ENTREVISTA: [
-                EstadoPostulacionEnum.OFERTA, 
-                EstadoPostulacionEnum.ACEPTADO,
-                EstadoPostulacionEnum.RECHAZADO,
-                EstadoPostulacionEnum.RECHAZO
-            ],
-            EstadoPostulacionEnum.OFERTA: [],  # Estado final no permite cambios
-            EstadoPostulacionEnum.RECHAZO: [],  # Estado final no permite cambios
-        }
-        
-        try:
-            nuevo_estado_enum = EstadoPostulacionEnum(nuevo_estado)
-            return nuevo_estado_enum in transiciones_permitidas.get(self.valor, [])
-        except ValueError:
+        estado_actual = normalizar_estado_postulacion(self.valor)
+        estado_nuevo = normalizar_estado_postulacion(nuevo_estado)
+        if estado_nuevo not in ESTADOS_POSTULACION_CANONICOS:
             return False
+
+        transiciones_permitidas = {
+            "pendiente": {"en_revision", "entrevista", "aceptado", "rechazado"},
+            "en_revision": {"entrevista", "aceptado", "rechazado"},
+            "entrevista": {"aceptado", "rechazado"},
+            "aceptado": set(),
+            "rechazado": set(),
+        }
+        return estado_nuevo in transiciones_permitidas.get(estado_actual, set())
 
 
 @dataclass
@@ -111,61 +110,15 @@ class Postulacion:
         if not self.estado.es_valido(nuevo_estado):
             return False
         
-        self.estado = EstadoPostulacion(nuevo_estado)
+        self.estado = EstadoPostulacion(
+            EstadoPostulacionEnum(normalizar_estado_postulacion(nuevo_estado))
+        )
         return True
     
     def agregar_documento(self, documento: Dict[str, Any]) -> None:
         """Agrega un documento a la postulación"""
         self.documentos_adjuntos.append(documento)
     
-    def registrar_hito(self, descripcion: str, fecha: Optional[datetime] = None) -> None:
-        """Registra un nuevo hito en la postulación"""
-        # Este método será implementado en el agregado
-        pass
-
-
-class EstadoPublicacionEnum(str, Enum):
-    """Valores posibles para el estado de publicación de un puesto"""
-    BORRADOR = "borrador"
-    PUBLICADO = "publicado"
-    CERRADO = "cerrado"
-
-
-@dataclass
-class PuestoPostulacion:
-    """Entity que representa un puesto de trabajo creado por una empresa"""
-    puesto_id: UUID = field(default_factory=uuid4)
-    empresa_id: UUID = None
-    titulo: str = ""
-    descripcion: str = ""
-    requisitos: List[str] = field(default_factory=list)
-    fecha_inicio: datetime = field(default_factory=datetime.now)
-    fecha_fin: Optional[datetime] = None
-    estado_publicacion: EstadoPublicacionEnum = EstadoPublicacionEnum.BORRADOR
-    
-    def publicar(self) -> bool:
-        """Publica el puesto para hacerlo visible a los candidatos"""
-        if self.estado_publicacion != EstadoPublicacionEnum.BORRADOR:
-            return False
-        
-        self.estado_publicacion = EstadoPublicacionEnum.PUBLICADO
-        return True
-    
-    def cerrar(self) -> bool:
-        """Cierra el puesto para que no reciba más postulaciones"""
-        if self.estado_publicacion != EstadoPublicacionEnum.PUBLICADO:
-            return False
-        
-        self.estado_publicacion = EstadoPublicacionEnum.CERRADO
-        self.fecha_fin = datetime.now()
-        return True
-    
-    def actualizar_requisitos(self, nuevos_requisitos: List[str]) -> None:
-        """Actualiza los requisitos del puesto"""
-        if self.estado_publicacion == EstadoPublicacionEnum.BORRADOR:
-            self.requisitos = nuevos_requisitos
-
-
 @dataclass
 class PostulacionAggregate(AggregateRoot):
     """Aggregate que garantiza la consistencia entre la postulación, su estado y la línea de tiempo"""
@@ -175,7 +128,7 @@ class PostulacionAggregate(AggregateRoot):
     
     def postularse(self) -> None:
         """Registra una nueva postulación"""
-        hito = self.linea_de_tiempo.agregar_hito(
+        self.linea_de_tiempo.agregar_hito(
             fecha=self.postulacion.fecha_postulacion,
             descripcion=f"Postulación creada en estado {self.estado.valor.value}"
         )
@@ -186,20 +139,26 @@ class PostulacionAggregate(AggregateRoot):
         estado_anterior = self.estado.valor
         
         try:
-            nuevo_estado_enum = EstadoPostulacionEnum(nuevo_estado)
+            nuevo_estado_enum = EstadoPostulacionEnum(
+                normalizar_estado_postulacion(nuevo_estado)
+            )
         except ValueError:
             return False
         
         if self.postulacion.actualizar_estado(nuevo_estado_enum):
             self.estado = self.postulacion.estado
-            hito = self.linea_de_tiempo.agregar_hito(
+            self.linea_de_tiempo.agregar_hito(
                 fecha=datetime.now(),
-                descripcion=f"Estado actualizado de {estado_anterior.value} a {nuevo_estado_enum.value}"
+                descripcion=(
+                    "Estado actualizado de "
+                    f"{normalizar_estado_postulacion(estado_anterior)} "
+                    f"a {nuevo_estado_enum.value}"
+                )
             )
             # Evento de dominio
             self.add_event(EstadoPostulacionActualizado(
                 self.postulacion.postulacion_id,
-                estado_anterior.value,
+                normalizar_estado_postulacion(estado_anterior),
                 nuevo_estado_enum.value
             ))
             return True

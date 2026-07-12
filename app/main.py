@@ -1,34 +1,33 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
-from app.infrastructure.database.connection import engine, Base
-from app.interface.api.postulacion.router import router as postulacion_router
-from app.interface.api.contacto.router import router as contacto_router
-from app.interface.api.metrica.router import router as metrica_router
-from app.interface.api.puesto.router import router as puesto_router
-from app.interface.api.iam.router import router as iam_router
 from app.config import settings
+from app.infrastructure.database.connection import Base, engine
+from app.interface.api.contacto.router import router as contacto_router
+from app.interface.api.iam.router import router as iam_router
+from app.interface.api.metrica.router import router as metrica_router
+from app.interface.api.postulacion.router import router as postulacion_router
+from app.interface.api.puesto.router import router as puesto_router
 
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-UPLOADS_DIR = "uploads"
-Path(UPLOADS_DIR).mkdir(parents=True, exist_ok=True)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+UPLOADS_DIR = PROJECT_ROOT / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_column(table_name: str, column_name: str, ddl: str) -> None:
-    if engine is None:
-        return
-
     inspector = inspect(engine)
     if table_name not in inspector.get_table_names():
         return
@@ -43,44 +42,101 @@ def _ensure_column(table_name: str, column_name: str, ddl: str) -> None:
 
 
 def _ensure_runtime_schema() -> None:
-    # create_all no altera tablas existentes; estas columnas son necesarias para
-    # instalaciones que nacieron con el esquema inicial del proyecto.
+    """Compatibilidad temporal para instalaciones creadas sin migraciones."""
     _ensure_column("puestos", "ubicacion", "ubicacion VARCHAR(300)")
     _ensure_column("puestos", "salario_min", "salario_min FLOAT")
     _ensure_column("puestos", "salario_max", "salario_max FLOAT")
-    _ensure_column("puestos", "moneda", "moneda VARCHAR(10) NOT NULL DEFAULT 'MXN'")
-    _ensure_column("puestos", "tipo_contrato", "tipo_contrato VARCHAR(50) NOT NULL DEFAULT 'tiempo_completo'")
-    _ensure_column("puestos", "fecha_publicacion", "fecha_publicacion TIMESTAMP NOT NULL DEFAULT NOW()")
+    _ensure_column(
+        "puestos", "moneda", "moneda VARCHAR(10) NOT NULL DEFAULT 'PEN'"
+    )
+    _ensure_column(
+        "puestos",
+        "tipo_contrato",
+        "tipo_contrato VARCHAR(50) NOT NULL DEFAULT 'tiempo_completo'",
+    )
+    _ensure_column(
+        "puestos",
+        "fecha_publicacion",
+        "fecha_publicacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    )
     _ensure_column("puestos", "fecha_cierre", "fecha_cierre TIMESTAMP")
     _ensure_column("cuentas", "foto_url", "foto_url TEXT")
-    _ensure_column("contactos_postulacion", "remitente_rol", "remitente_rol VARCHAR(20) NOT NULL DEFAULT 'empresa'")
+    _ensure_column("cuentas", "perfil", "perfil TEXT")
+    _ensure_column(
+        "postulaciones",
+        "documentos_adjuntos",
+        "documentos_adjuntos JSON NOT NULL DEFAULT '[]'",
+    )
+    _ensure_column(
+        "contactos_postulacion",
+        "remitente_rol",
+        "remitente_rol VARCHAR(20) NOT NULL DEFAULT 'empresa'",
+    )
+    _ensure_column(
+        "contactos_postulacion",
+        "leido",
+        "leido BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    _normalizar_estados_legacy()
 
 
-try:
-    if engine is not None:
-        logger.info("Creando tablas en la base de datos...")
+def _normalizar_estados_legacy() -> None:
+    """Migra aliases historicos sin exponer dos vocabularios en la API."""
+    inspector = inspect(engine)
+    if "postulaciones" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as connection:
+        aceptadas = connection.execute(
+            text(
+                "UPDATE postulaciones SET estado = 'ACEPTADO' "
+                "WHERE LOWER(estado) = 'oferta'"
+            )
+        ).rowcount
+        rechazadas = connection.execute(
+            text(
+                "UPDATE postulaciones SET estado = 'RECHAZADO' "
+                "WHERE LOWER(estado) = 'rechazo'"
+            )
+        ).rowcount
+
+    if aceptadas or rechazadas:
+        logger.info(
+            "Estados legacy normalizados: %s aceptadas, %s rechazadas.",
+            aceptadas,
+            rechazadas,
+        )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
         Base.metadata.create_all(bind=engine)
         _ensure_runtime_schema()
-        logger.info("Tablas creadas exitosamente.")
-    else:
-        logger.warning("Motor de base de datos no disponible, no se pueden crear tablas.")
-except Exception as e:
-    logger.error(f"Error al crear tablas: {e}")
+        logger.info("Esquema de base de datos listo.")
+    except Exception:
+        logger.exception("No se pudo preparar el esquema de base de datos.")
+        raise
+    yield
 
 
+docs_enabled = settings.DEBUG or settings.ENABLE_SWAGGER
 app = FastAPI(
-    title="API de Gestión de Postulaciones",
-    description="API REST con FastAPI y PostgreSQL implementando Domain-Driven Design",
-    version="1.0.0",
-    docs_url="/docs",  
-    redoc_url="/redoc", 
-    swagger_ui_parameters={"defaultModelsExpandDepth": -1}
+    title="LookUp API",
+    description="API compartida para postulantes y empresas de LookUp.",
+    version="1.1.0",
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
+    swagger_ui_parameters={"defaultModelsExpandDepth": -1},
+    lifespan=lifespan,
 )
 
+allow_credentials = "*" not in settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -90,47 +146,13 @@ app.include_router(contacto_router, prefix="/api")
 app.include_router(metrica_router, prefix="/api")
 app.include_router(puesto_router, prefix="/api")
 app.include_router(iam_router, prefix="/api")
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
-@app.get("/", tags=["Root"])
+
+@app.get("/", tags=["Sistema"])
 async def root():
     return {
-        "message": "Bienvenido a la API de Gestión de Postulaciones",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT
+        "message": "LookUp API disponible",
+        "version": "1.1.0",
+        "environment": settings.ENVIRONMENT,
     }
-
-
-@app.get("/openapi.json", include_in_schema=False)
-async def get_open_api_endpoint():
-    return get_openapi(
-        title="API de Gestión de Postulaciones", 
-        version="1.0.0",
-        description="API REST con FastAPI y PostgreSQL implementando Domain-Driven Design",
-        routes=app.routes,
-        tags=[
-            {"name": "Root", "description": "Endpoints principales de la aplicación"},
-            {"name": "Postulación", "description": "Gestión de postulaciones de candidatos a ofertas laborales"},
-            {"name": "Contacto", "description": "Gestión de contactos y comunicaciones"},
-            {"name": "Métricas", "description": "Análisis y métricas de postulaciones"},
-            {"name": "Puesto", "description": "Gestión de puestos de trabajo"},
-            {"name": "IAM", "description": "Gestión de identidad y acceso con autenticación JWT"}
-        ]
-    )
-
-
-@app.get("/docs", include_in_schema=False)
-async def get_documentation():
-    return get_swagger_ui_html(
-        openapi_url="/openapi.json",
-        title="API de Gestión de Postulaciones - Documentación",
-        swagger_favicon_url="",
-        swagger_ui_parameters={
-            "docExpansion": "list",
-            "defaultModelsExpandDepth": -1,
-            "deepLinking": True,
-            "displayRequestDuration": True,
-            "filter": True
-        }
-    )
-# Updated

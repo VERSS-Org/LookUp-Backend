@@ -11,10 +11,6 @@ from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
 
 # Importar tipos de dominio para reconocer aggregates
-from app.domain.iam.entities import CuentaAggregate as CuentaAggregateDomain
-from app.domain.puesto.entities import PuestoAggregate as PuestoAggregateDomain
-from app.domain.iam.entities import Cuenta as CuentaEntity
-from app.domain.puesto.entities import Puesto as PuestoEntity
 
 
 class PostulacionService:
@@ -124,12 +120,14 @@ class PostulacionService:
                 carrera = getattr(cuenta_obj, "carrera", None)
                 telefono = getattr(cuenta_obj, "telefono", None)
                 ciudad = getattr(cuenta_obj, "ciudad", None)
+                foto_url = getattr(cuenta_obj, "foto_url", None)
             elif isinstance(cuenta, dict):
                 nombre = cuenta.get("nombre_completo", "")
                 email = cuenta.get("email", "")
                 carrera = cuenta.get("carrera")
                 telefono = cuenta.get("telefono")
                 ciudad = cuenta.get("ciudad")
+                foto_url = cuenta.get("foto_url")
             else:
                 # Otros tipos: intentar acceder por atributos comunes
                 nombre = getattr(cuenta, "nombre_completo", "")
@@ -137,6 +135,7 @@ class PostulacionService:
                 carrera = getattr(cuenta, "carrera", None)
                 telefono = getattr(cuenta, "telefono", None)
                 ciudad = getattr(cuenta, "ciudad", None)
+                foto_url = getattr(cuenta, "foto_url", None)
 
             return {
                 "cuenta_id": str(candidato_id),
@@ -144,7 +143,8 @@ class PostulacionService:
                 "email": email,
                 "carrera": carrera,
                 "telefono": telefono,
-                "ciudad": ciudad
+                "ciudad": ciudad,
+                "foto_url": foto_url
             }
         except Exception as e:
             print(f"Error obteniendo candidato {candidato_id}: {str(e)}")
@@ -166,7 +166,7 @@ class PostulacionService:
                 ubicacion = getattr(puesto_obj, "ubicacion", "")
                 salario_min = getattr(puesto_obj, "salario_min", None)
                 salario_max = getattr(puesto_obj, "salario_max", None)
-                moneda = getattr(puesto_obj, "moneda", "MXN")
+                moneda = getattr(puesto_obj, "moneda", "PEN")
                 tipo_contrato = self._valor_publico(getattr(puesto_obj, "tipo_contrato", ""))
                 empresa_id = getattr(puesto_obj, "empresa_id", None)
             elif isinstance(puesto, dict):
@@ -175,7 +175,7 @@ class PostulacionService:
                 ubicacion = puesto.get("ubicacion", "")
                 salario_min = puesto.get("salario_min")
                 salario_max = puesto.get("salario_max")
-                moneda = puesto.get("moneda", "MXN")
+                moneda = puesto.get("moneda", "PEN")
                 tipo_contrato = self._valor_publico(puesto.get("tipo_contrato", ""))
                 empresa_id = puesto.get("empresa_id")
             else:
@@ -184,7 +184,7 @@ class PostulacionService:
                 ubicacion = getattr(puesto, "ubicacion", "")
                 salario_min = getattr(puesto, "salario_min", None)
                 salario_max = getattr(puesto, "salario_max", None)
-                moneda = getattr(puesto, "moneda", "MXN")
+                moneda = getattr(puesto, "moneda", "PEN")
                 tipo_contrato = self._valor_publico(getattr(puesto, "tipo_contrato", ""))
                 empresa_id = getattr(puesto, "empresa_id", None)
 
@@ -217,17 +217,21 @@ class PostulacionService:
                 empresa_obj = getattr(empresa, "cuenta")
                 nombre = getattr(empresa_obj, "nombre_completo", "")
                 email = getattr(getattr(empresa_obj, "credencial", {}), "email", "")
+                foto_url = getattr(empresa_obj, "foto_url", None)
             elif isinstance(empresa, dict):
                 nombre = empresa.get("nombre_completo", "")
                 email = empresa.get("email", "")
+                foto_url = empresa.get("foto_url")
             else:
                 nombre = getattr(empresa, "nombre_completo", "")
                 email = getattr(empresa, "email", "")
+                foto_url = getattr(empresa, "foto_url", None)
 
             return {
                 "empresa_id": str(empresa_id),
                 "nombre": nombre,
-                "email": email
+                "email": email,
+                "foto_url": foto_url
             }
         except Exception as e:
             print(f"Error obteniendo empresa {empresa_id}: {str(e)}")

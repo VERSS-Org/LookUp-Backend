@@ -1,8 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
-from typing import List, Dict, Any, Optional
-from uuid import UUID
+from typing import List
 
 class Command:
     pass
@@ -32,13 +29,24 @@ class Repository(ABC):
     pass
 
 class AggregateRoot:
-    _events: List[Event] = []
-    
+    """Base de agregado con eventos aislados por instancia.
+
+    La lista anterior era un atributo de clase, por lo que un evento agregado
+    a una cuenta tambien aparecia en puestos y postulaciones creados despues.
+    Las subclases son ``dataclass`` y no invocan un ``__init__`` de esta base;
+    por eso el almacenamiento se inicializa de forma perezosa.
+    """
+
+    def _eventos(self) -> List[Event]:
+        if "_events" not in self.__dict__:
+            self.__dict__["_events"] = []
+        return self.__dict__["_events"]
+
     def add_event(self, event: Event):
-        self._events.append(event)
+        self._eventos().append(event)
     
     def clear_events(self):
-        self._events.clear()
+        self._eventos().clear()
     
     def get_events(self) -> List[Event]:
-        return self._events.copy()
+        return self._eventos().copy()

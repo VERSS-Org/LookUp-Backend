@@ -1,6 +1,5 @@
 from typing import List, Optional
 from uuid import UUID, uuid4
-from sqlalchemy.orm import Session
 
 from app.domain.contacto.entities import (
     ContactoPostulacion, Feedback, ContactoAggregate, 
@@ -12,10 +11,6 @@ from app.infrastructure.contacto.models import ContactoPostulacionModel, Feedbac
 
 
 class ContactoRepositoryImpl(ContactoRepository):
-
-    def __init__(self):
-        pass
-    
     def guardar(self, contacto_aggregate: ContactoAggregate) -> UUID:
 
         db = SessionLocal()
@@ -36,13 +31,15 @@ class ContactoRepositoryImpl(ContactoRepository):
                     tipo_mensaje=contacto.tipo_mensaje.value,
                     remitente_rol=contacto.remitente_rol,
                     motivo_rechazo=contacto.motivo_rechazo,
-                    fecha_hora=contacto.fecha_hora
+                    fecha_hora=contacto.fecha_hora,
+                    leido=contacto.leido,
                 )
                 db.add(contacto_db)
             else:
                 contacto_db.tipo_mensaje = contacto.tipo_mensaje.value
                 contacto_db.remitente_rol = contacto.remitente_rol
                 contacto_db.motivo_rechazo = contacto.motivo_rechazo
+                contacto_db.leido = contacto.leido
             
             db.query(FeedbackModel).filter(
                 FeedbackModel.contacto_id == str(contacto_id)
@@ -88,7 +85,8 @@ class ContactoRepositoryImpl(ContactoRepository):
                 tipo_mensaje=TipoMensajeEnum(contacto_db.tipo_mensaje),
                 remitente_rol=getattr(contacto_db, "remitente_rol", None) or "empresa",
                 motivo_rechazo=contacto_db.motivo_rechazo,
-                fecha_hora=contacto_db.fecha_hora
+                fecha_hora=contacto_db.fecha_hora,
+                leido=bool(contacto_db.leido),
             )
             
             lista_feedback = []

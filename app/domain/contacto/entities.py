@@ -60,6 +60,7 @@ class ContactoPostulacion:
     remitente_rol: str = "empresa"
     motivo_rechazo: Optional[str] = None
     fecha_hora: datetime = field(default_factory=datetime.now)
+    leido: bool = False
     
     def asociar_feedback(self, feedback: Feedback) -> bool:
         """Asocia un feedback al contacto"""
@@ -123,7 +124,7 @@ class ContactoAggregate(AggregateRoot):
             # Emitir evento para actualizar postulación a OFERTA
             self.add_event(SolicitudCambioEstadoPostulacion(
                 self.contacto_postulacion.postulacion_id,
-                "oferta"
+                "aceptado"
             ))
             self.contacto_postulacion.marcar_como_aceptado()
         

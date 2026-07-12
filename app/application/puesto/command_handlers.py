@@ -19,7 +19,7 @@ class CrearPuestoCommand(Command):
     ubicacion: str
     salario_min: Optional[float] = None
     salario_max: Optional[float] = None
-    moneda: str = "MXN"
+    moneda: str = "PEN"
     tipo_contrato: TipoContratoEnum = TipoContratoEnum.TIEMPO_COMPLETO
     requisitos: List[Dict[str, Any]] = None
 
@@ -94,6 +94,8 @@ class ActualizarPuestoCommand(Command):
     ubicacion: Optional[str] = None
     salario_min: Optional[float] = None
     salario_max: Optional[float] = None
+    actualizar_salario_min: bool = False
+    actualizar_salario_max: bool = False
     moneda: Optional[str] = None
     tipo_contrato: Optional[TipoContratoEnum] = None
     requisitos: Optional[List[Dict[str, Any]]] = None
@@ -115,11 +117,11 @@ class ActualizarPuestoHandler(CommandHandler):
         puesto_aggregate = self.puesto_repository.obtener_por_id(command.puesto_id)
         
         if not puesto_aggregate:
-            raise ValueError(f"No existe un puesto con ID {command.puesto_id}")
+            raise ValueError(f"No existe una vacante con ID {command.puesto_id}")
         
         # Verificar que el puesto no esté cerrado
         if puesto_aggregate.puesto.estado == EstadoPuestoEnum.CERRADO:
-            raise ValueError("No se puede actualizar un puesto cerrado")
+            raise ValueError("No se puede actualizar una vacante cerrada")
         
         # Actualizar los campos del puesto
         puesto_aggregate.puesto.actualizar_informacion(
@@ -129,7 +131,9 @@ class ActualizarPuestoHandler(CommandHandler):
             salario_min=command.salario_min,
             salario_max=command.salario_max,
             moneda=command.moneda,
-            tipo_contrato=command.tipo_contrato
+            tipo_contrato=command.tipo_contrato,
+            actualizar_salario_min=command.actualizar_salario_min,
+            actualizar_salario_max=command.actualizar_salario_max,
         )
         
         # Actualizar requisitos si se proporcionan
@@ -147,9 +151,9 @@ class ActualizarPuestoHandler(CommandHandler):
             campos_actualizados.append("descripcion")
         if command.ubicacion is not None:
             campos_actualizados.append("ubicacion")
-        if command.salario_min is not None:
+        if command.actualizar_salario_min:
             campos_actualizados.append("salario_min")
-        if command.salario_max is not None:
+        if command.actualizar_salario_max:
             campos_actualizados.append("salario_max")
         if command.moneda is not None:
             campos_actualizados.append("moneda")
@@ -211,7 +215,7 @@ class CambiarEstadoPuestoHandler(CommandHandler):
         puesto_aggregate = self.puesto_repository.obtener_por_id(command.puesto_id)
         
         if not puesto_aggregate:
-            raise ValueError(f"No existe un puesto con ID {command.puesto_id}")
+            raise ValueError(f"No existe una vacante con ID {command.puesto_id}")
         
         # Aplicar el cambio de estado
         if not puesto_aggregate.cambiar_estado(command.nuevo_estado):

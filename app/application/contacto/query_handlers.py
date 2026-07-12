@@ -2,8 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from app.domain.common import Query, QueryHandler, EventHandler
-from app.domain.contacto.entities import ContactoAggregate, FeedbackEnviado, SolicitudCambioEstadoPostulacion
+from app.domain.common import Query, QueryHandler
 from app.domain.contacto.repositories import ContactoRepository
 
 
@@ -59,6 +58,7 @@ class ObtenerContactosPostulacionQueryHandler(QueryHandler):
                 "tipo_mensaje": contacto.tipo_mensaje.value,
                 "remitente_rol": contacto.remitente_rol,
                 "motivo_rechazo": contacto.motivo_rechazo,
+                "leido": contacto.leido,
                 "fecha_hora": contacto.fecha_hora.isoformat(),
                 "ultimo_feedback": ultimo_feedback,
                 "feedbacks": feedbacks
@@ -101,6 +101,7 @@ class ObtenerContactoQueryHandler(QueryHandler):
             "tipo_mensaje": contacto.tipo_mensaje.value,
             "remitente_rol": contacto.remitente_rol,
             "motivo_rechazo": contacto.motivo_rechazo,
+            "leido": contacto.leido,
             "fecha_hora": contacto.fecha_hora.isoformat(),
             "feedbacks": [
                 {
@@ -111,32 +112,3 @@ class ObtenerContactoQueryHandler(QueryHandler):
                 for feedback in contacto_aggregate.lista_feedback
             ]
         }
-
-
-class FeedbackEnviadoHandler(EventHandler):
-    """
-    Manejador de eventos para FeedbackEnviado
-    """
-    
-    def handle(self, event: FeedbackEnviado) -> None:
-        """
-        Maneja el evento de feedback enviado
-        Este handler puede notificar al postulante o registrar en métricas
-        """
-        # Aquí se implementaría la lógica para notificar al postulante o actualizar métricas
-        pass
-
-
-class SolicitudCambioEstadoPostulacionHandler(EventHandler):
-    """
-    Manejador de eventos para SolicitudCambioEstadoPostulacion
-    """
-    
-    def handle(self, event: SolicitudCambioEstadoPostulacion) -> None:
-        """
-        Maneja el evento que solicita cambio de estado en una postulación
-        Este handler interactuaría con el bounded context de Postulación
-        """
-        # Aquí se implementaría la lógica para solicitar el cambio de estado
-        # en el bounded context de Postulación
-        pass

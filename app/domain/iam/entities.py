@@ -69,9 +69,11 @@ class Cuenta:
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
     foto_url: Optional[str] = None
+    # Perfil extendido (descripcion, experiencia, educacion, certificados,
+    # habilidades, idiomas, extras) almacenado como dict JSON.
+    perfil: Optional[dict] = None
     rol: RolEnum = RolEnum.POSTULANTE
     estado: EstadoCuentaEnum = EstadoCuentaEnum.NO_VERIFICADA
-    datos_verificacion: Dict[str, Any] = field(default_factory=dict)
     fecha_creacion: datetime = field(default_factory=datetime.now)
     fecha_actualizacion: Optional[datetime] = None
     fecha_primer_acceso: Optional[datetime] = None
@@ -128,21 +130,6 @@ class CuentaAggregate(AggregateRoot):
             email,
             rol=rol
         ))
-    
-    def aplicar_verificacion_cuenta(self, codigo_verificacion: str) -> bool:
-        """Aplica la verificación de cuenta"""
-        if self.cuenta.estado == EstadoCuentaEnum.VERIFICADA:
-            return False
-        
-        self.cuenta.cambiar_estado(EstadoCuentaEnum.VERIFICADA)
-        self.cuenta.datos_verificacion['codigo_usado'] = codigo_verificacion
-        self.cuenta.datos_verificacion['fecha_verificacion'] = datetime.now().isoformat()
-        
-        self.add_event(CuentaVerificada(
-            self.cuenta.cuenta_id
-        ))
-        
-        return True
     
     def aplicar_generacion_token(
         self,
@@ -232,7 +219,7 @@ class CuentaAggregate(AggregateRoot):
         """Registra un acceso o evento en el historial"""
         self.historial_accesos.append({
             "tipo_acceso": tipo_acceso,
-            "fecha": datetime.now().isoformat(),
+            "fecha": datetime.now(),
             "detalles": detalles
         })
 
@@ -244,12 +231,6 @@ class CuentaCreada:
     cuenta_id: UUID
     email: str
     rol: RolEnum
-
-
-@dataclass
-class CuentaVerificada:
-    """Evento que se emite cuando se verifica una cuenta"""
-    cuenta_id: UUID
 
 
 @dataclass

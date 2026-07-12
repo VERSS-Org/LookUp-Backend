@@ -1,7 +1,12 @@
+import hashlib
+import hmac
+import secrets
+
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path as FilePath
+from urllib.parse import urlparse
 from uuid import UUID
 from uuid import uuid4
 
@@ -9,7 +14,6 @@ from app.application.iam.command_handlers import (
     CrearCuentaHandler, CrearCuentaCommand,
     LoginHandler, LoginCommand,
     GenerarTokenHandler, GenerarTokenCommand,
-    VerificarCuentaHandler, VerificarCuentaCommand,
     CambiarPasswordHandler, CambiarPasswordCommand
 )
 from app.application.iam.query_handlers import (
@@ -17,19 +21,26 @@ from app.application.iam.query_handlers import (
     ObtenerCuentaPorEmailQueryHandler, ObtenerCuentaPorEmailQuery,
     VerificarTokenQueryHandler, VerificarTokenQuery
 )
+from app.config import settings
+from app.infrastructure.database.connection import SessionLocal
+from app.infrastructure.iam.models import CuentaModel, TokenModel
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
-from app.infrastructure.iam.security import TokenManager
+from app.infrastructure.iam.security import PasswordManager, TokenManager
+from app.infrastructure.postulacion.models import PostulacionModel
+from app.infrastructure.puesto.models import PuestoMapeo, PuestoModel
 from app.interface.api.dependencies import obtener_usuario_actual
 
 from .schemas import (
-    CrearCuentaRequest, LoginRequest, VerificarCuentaRequest,
+    CrearCuentaRequest, LoginRequest,
+    RecuperarPasswordRequest, RestablecerPasswordRequest, RecuperacionResponse,
     RefreshTokenRequest, CambiarPasswordRequest, CuentaUpdateRequest,
-    TokenResponse, CuentaResponse, VerificacionResponse,
+    TokenResponse, CuentaResponse,
     MensajeResponse, TokenVerificationResponse
 )
 
 router = APIRouter(prefix="/iam", tags=["IAM"])
-PROFILE_PHOTO_DIR = FilePath("uploads/profile_photos")
+PROJECT_ROOT = FilePath(__file__).resolve().parents[4]
+PROFILE_PHOTO_DIR = PROJECT_ROOT / "uploads" / "profile_photos"
 MAX_PROFILE_PHOTO_BYTES = 3 * 1024 * 1024
 ALLOWED_PROFILE_PHOTO_EXTENSIONS = {
     ".jpg",
@@ -60,13 +71,76 @@ def _validar_misma_cuenta(cuenta_id: str, usuario: dict) -> None:
         )
 
 
+def _validar_acceso_lectura_cuenta(cuenta_data: dict, usuario: dict) -> None:
+    """Protege perfiles completos sin romper sus usos legitimos en reclutamiento."""
+    cuenta_objetivo = str(cuenta_data["cuenta_id"])
+    cuenta_actual = str(usuario.get("cuenta_id"))
+    if cuenta_objetivo == cuenta_actual:
+        return
+
+    if (
+        not cuenta_data.get("activa", True)
+        or cuenta_data.get("estado") in {"inactiva", "suspendida"}
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cuenta no encontrada",
+        )
+
+    rol_actual = usuario.get("rol")
+    rol_objetivo = cuenta_data.get("rol")
+
+    # Los perfiles de empresa son visibles para postulantes autenticados.
+    if rol_actual == "postulante" and rol_objetivo == "empresa":
+        return
+
+    # Una empresa solo puede ver el perfil completo de quienes postularon a
+    # alguna de sus propias vacantes.
+    if rol_actual == "empresa" and rol_objetivo == "postulante":
+        db = SessionLocal()
+        try:
+            postulacion = (
+                db.query(PostulacionModel.id)
+                .join(
+                    PuestoMapeo,
+                    PuestoMapeo.uuid_id == PostulacionModel.puesto_id,
+                )
+                .join(PuestoModel, PuestoModel.id == PuestoMapeo.bd_id)
+                .filter(
+                    PostulacionModel.cuenta_id == cuenta_objetivo,
+                    PuestoModel.empresa == cuenta_actual,
+                )
+                .first()
+            )
+        finally:
+            db.close()
+        if postulacion:
+            return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="No tienes permiso para consultar el perfil completo de esta cuenta",
+    )
+
+
+def _eliminar_foto_local(foto_url: Optional[str], cuenta_id: str) -> None:
+    if not foto_url:
+        return
+    nombre = FilePath(urlparse(foto_url).path).name
+    if not nombre.startswith(f"{cuenta_id}-"):
+        return
+    ruta = PROFILE_PHOTO_DIR / nombre
+    if ruta.is_file():
+        ruta.unlink()
+
+
 @router.post("/registrar", response_model=CuentaResponse, status_code=status.HTTP_201_CREATED)
 async def registrar_cuenta(request: CrearCuentaRequest):
     """
     Registra una nueva cuenta de usuario.
     - **email**: Email único del usuario
     - **password**: Contraseña (mín. 8 caracteres, mayúscula, minúscula, número, carácter especial)
-    - **tipo_cuenta**: Tipo de cuenta (candidato, empresa, admin) - por defecto 'candidato'
+    - **rol**: Tipo de cuenta (`postulante` o `empresa`)
     """
     try:
         repository = CuentaRepositoryImpl()
@@ -159,48 +233,6 @@ async def login(request: LoginRequest):
         )
 
 
-@router.post("/verificar-cuenta", response_model=VerificacionResponse, status_code=status.HTTP_200_OK)
-async def verificar_cuenta(request: VerificarCuentaRequest):
-    """
-    Verifica una cuenta usando el código de verificación enviado al email.
-    
-    - **cuenta_id**: ID de la cuenta a verificar
-    - **codigo_verificacion**: Código enviado al email del usuario
-    """
-    try:
-        repository = CuentaRepositoryImpl()
-        handler = VerificarCuentaHandler(repository)
-        
-        command = VerificarCuentaCommand(
-            cuenta_id=UUID(request.cuenta_id),
-            codigo_verificacion=request.codigo_verificacion
-        )
-        
-        handler.handle(command)
-        
-        # Obtener cuenta actualizada
-        query_handler = ObtenerCuentaQueryHandler(repository)
-        query = ObtenerCuentaQuery(cuenta_id=UUID(request.cuenta_id))
-        cuenta_data = query_handler.handle(query)
-        
-        return VerificacionResponse(
-            mensaje="Cuenta verificada exitosamente",
-            cuenta_id=cuenta_data['cuenta_id'],
-            estado=cuenta_data['estado']
-        )
-    
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al verificar cuenta: {str(e)}"
-        )
-
-
 @router.post("/refresh-token", response_model=TokenResponse, status_code=status.HTTP_200_OK)
 async def refresh_token(request: RefreshTokenRequest):
     """
@@ -223,11 +255,39 @@ async def refresh_token(request: RefreshTokenRequest):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Tipo de token incorrecto"
             )
+
+        cuenta_id = payload.get("sub")
+        try:
+            cuenta_uuid = UUID(cuenta_id)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de refresco sin una cuenta válida",
+            )
+
+        db = SessionLocal()
+        try:
+            token_persistido = db.query(TokenModel).filter(
+                TokenModel.cuenta_id == cuenta_uuid,
+                TokenModel.token_value == request.refresh_token,
+                TokenModel.tipo_token == "refresh",
+                TokenModel.activo.is_(True),
+            ).first()
+            if not token_persistido or (
+                token_persistido.fecha_expiracion
+                and token_persistido.fecha_expiracion < datetime.now()
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token de refresco revocado o expirado",
+                )
+        finally:
+            db.close()
         
         # Obtener la cuenta
         repository = CuentaRepositoryImpl()
         query_handler = ObtenerCuentaQueryHandler(repository)
-        query = ObtenerCuentaQuery(cuenta_id=UUID(payload.get("sub")))
+        query = ObtenerCuentaQuery(cuenta_id=cuenta_uuid)
         cuenta_data = query_handler.handle(query)
         
         if not cuenta_data:
@@ -235,20 +295,29 @@ async def refresh_token(request: RefreshTokenRequest):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Cuenta no encontrada"
             )
+
+        if (
+            not cuenta_data.get("activa", True)
+            or cuenta_data["estado"] in {"inactiva", "suspendida"}
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La cuenta no está habilitada",
+            )
         
-        # Generar nuevo access token
-        nuevo_access_token = TokenManager.crear_access_token({
-            "sub": payload.get("sub"),
-            "email": payload.get("email"),
-            "rol": cuenta_data.get("rol"),
-            "tipo": "access"
-        })
+        token_resultado = GenerarTokenHandler(repository).handle(
+            GenerarTokenCommand(
+                cuenta_id=cuenta_uuid,
+                tipo_token="access",
+            )
+        )
+        nuevo_access_token = token_resultado["token"]
         
         return TokenResponse(
             access_token=nuevo_access_token,
             token_type="bearer",
             cuenta_id=payload.get("sub"),
-            email=payload.get("email"),
+            email=cuenta_data.get("email"),
             rol=cuenta_data.get("rol")
         )
     
@@ -308,6 +377,189 @@ async def cambiar_password(
         )
 
 
+RESET_CODE_TTL_MINUTES = 15
+
+
+def _reset_token_value(cuenta_id: UUID, codigo: str) -> str:
+    digest = hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        f"{cuenta_id}:{codigo}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"reset:{cuenta_id}:{digest}"
+
+
+@router.post("/recuperar-password", response_model=RecuperacionResponse, status_code=status.HTTP_200_OK)
+async def recuperar_password(request: RecuperarPasswordRequest):
+    """
+    Genera un código de recuperación de contraseña de 6 dígitos válido por
+    15 minutos. La respuesta es neutra (no revela si la cuenta existe).
+
+    Para pruebas locales sin correo, `codigo_dev` solo se devuelve cuando
+    `EXPOSE_RESET_CODE=true` y el entorno es de desarrollo.
+    """
+    mensaje = (
+        "Si el correo está registrado, recibirás un código para restablecer "
+        "tu contraseña."
+    )
+    try:
+        repository = CuentaRepositoryImpl()
+        cuenta = repository.obtener_por_email(request.email)
+        if not cuenta:
+            return RecuperacionResponse(mensaje=mensaje)
+
+        codigo = f"{secrets.randbelow(1_000_000):06d}"
+        cuenta_id = cuenta.cuenta.cuenta_id
+
+        db = SessionLocal()
+        try:
+            # Invalidar códigos anteriores de esta cuenta.
+            db.query(TokenModel).filter(
+                TokenModel.cuenta_id == cuenta_id,
+                TokenModel.tipo_token == "reset",
+                TokenModel.activo.is_(True),
+            ).update({TokenModel.activo: False}, synchronize_session=False)
+
+            db.add(TokenModel(
+                cuenta_id=cuenta_id,
+                # token_value es único: se combina con la cuenta.
+                token_value=_reset_token_value(cuenta_id, codigo),
+                tipo_token="reset",
+                fecha_creacion=datetime.now(),
+                fecha_expiracion=datetime.now() + timedelta(
+                    minutes=RESET_CODE_TTL_MINUTES),
+                activo=True,
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        codigo_dev = (
+            codigo
+            if settings.ENVIRONMENT == "development"
+            and settings.EXPOSE_RESET_CODE
+            else None
+        )
+        return RecuperacionResponse(mensaje=mensaje, codigo_dev=codigo_dev)
+    except HTTPException:
+        raise
+    except Exception:
+        # Respuesta neutra incluso ante errores para no filtrar información.
+        return RecuperacionResponse(mensaje=mensaje)
+
+
+@router.post("/restablecer-password", response_model=MensajeResponse, status_code=status.HTTP_200_OK)
+async def restablecer_password(request: RestablecerPasswordRequest):
+    """
+    Restablece la contraseña usando el código de recuperación vigente.
+    """
+    error_generico = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Código inválido o expirado"
+    )
+    try:
+        repository = CuentaRepositoryImpl()
+        cuenta_aggregate = repository.obtener_por_email(request.email)
+        if not cuenta_aggregate:
+            raise error_generico
+
+        cuenta_id = cuenta_aggregate.cuenta.cuenta_id
+        codigo = request.codigo.strip()
+        token_esperado = _reset_token_value(cuenta_id, codigo)
+        token_legado = f"reset:{cuenta_id}:{codigo}"
+
+        db = SessionLocal()
+        try:
+            token = db.query(TokenModel).filter(
+                TokenModel.cuenta_id == cuenta_id,
+                TokenModel.tipo_token == "reset",
+                TokenModel.activo.is_(True),
+                TokenModel.token_value.in_((token_esperado, token_legado)),
+            ).first()
+            if not token or (
+                token.fecha_expiracion
+                and token.fecha_expiracion < datetime.now()
+            ):
+                raise error_generico
+
+            if not PasswordManager.es_password_fuerte(request.password_nuevo):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "La contraseña debe tener al menos 8 caracteres, una "
+                        "mayúscula, una minúscula, un número y un carácter "
+                        "especial"
+                    )
+                )
+
+            token.activo = False
+            db.commit()
+        finally:
+            db.close()
+
+        nuevo_hash = PasswordManager.hashear_password(request.password_nuevo)
+        cuenta_aggregate.aplicar_cambio_password(nuevo_hash)
+        repository.guardar(cuenta_aggregate)
+        repository.revocar_tokens(cuenta_id)
+
+        return MensajeResponse(
+            mensaje="Contraseña restablecida correctamente", exito=True
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al restablecer contraseña: {str(e)}"
+        )
+
+
+@router.get("/empresas", status_code=status.HTTP_200_OK)
+async def buscar_empresas(
+    q: Optional[str] = None,
+    usuario: dict = Depends(obtener_usuario_actual)
+):
+    """
+    Lista empresas registradas (búsqueda pública para usuarios autenticados).
+    - **q**: filtro opcional por nombre.
+    """
+    import json as _json
+    from app.domain.iam.entities import EstadoCuentaEnum, RolEnum
+
+    db = SessionLocal()
+    try:
+        query = db.query(CuentaModel).filter(
+            CuentaModel.rol == RolEnum.EMPRESA,
+            CuentaModel.activa.is_(True),
+            CuentaModel.estado.notin_((
+                EstadoCuentaEnum.INACTIVA,
+                EstadoCuentaEnum.SUSPENDIDA,
+            )),
+        )
+        if q:
+            query = query.filter(CuentaModel.nombre_completo.ilike(f"%{q.strip()}%"))
+        cuentas = query.order_by(CuentaModel.nombre_completo.asc()).limit(50).all()
+
+        resultado = []
+        for cuenta in cuentas:
+            descripcion = None
+            if getattr(cuenta, "perfil", None):
+                try:
+                    descripcion = _json.loads(cuenta.perfil).get("descripcion")
+                except Exception:
+                    descripcion = None
+            resultado.append({
+                "cuenta_id": str(cuenta.id),
+                "nombre": cuenta.nombre_completo,
+                "foto_url": cuenta.foto_url,
+                "ciudad": cuenta.ciudad,
+                "descripcion": descripcion,
+            })
+        return resultado
+    finally:
+        db.close()
+
+
 @router.get("/me", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
 async def obtener_mi_cuenta(usuario: dict = Depends(obtener_usuario_actual)):
     """
@@ -336,7 +588,10 @@ async def obtener_mi_cuenta(usuario: dict = Depends(obtener_usuario_actual)):
 
 
 @router.get("/cuenta/{cuenta_id}", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
-async def obtener_cuenta(cuenta_id: str):
+async def obtener_cuenta(
+    cuenta_id: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+):
     """
     Obtiene la información de una cuenta.
     
@@ -354,7 +609,8 @@ async def obtener_cuenta(cuenta_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cuenta no encontrada: {cuenta_id}"
             )
-        
+
+        _validar_acceso_lectura_cuenta(cuenta_data, usuario)
         return CuentaResponse(**cuenta_data)
     
     except HTTPException:
@@ -442,7 +698,7 @@ async def subir_foto_perfil(
         if not content:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La imagen esta vacia"
+                detail="La imagen está vacía"
             )
         if len(content) > MAX_PROFILE_PHOTO_BYTES:
             raise HTTPException(
@@ -452,7 +708,7 @@ async def subir_foto_perfil(
         if not _looks_like_image(content, extension):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El archivo no parece ser una imagen valida"
+                detail="El archivo no parece ser una imagen válida"
             )
 
         repository = CuentaRepositoryImpl()
@@ -469,9 +725,15 @@ async def subir_foto_perfil(
         file_path.write_bytes(content)
 
         public_url = str(request.base_url).rstrip("/") + f"/uploads/profile_photos/{file_name}"
+        foto_anterior = cuenta_aggregate.cuenta.foto_url
         cuenta_aggregate.cuenta.foto_url = public_url
         cuenta_aggregate.cuenta.fecha_actualizacion = datetime.now()
-        repository.guardar(cuenta_aggregate)
+        try:
+            repository.guardar(cuenta_aggregate)
+        except Exception:
+            file_path.unlink(missing_ok=True)
+            raise
+        _eliminar_foto_local(foto_anterior, cuenta_id)
 
         handler = ObtenerCuentaQueryHandler(repository)
         cuenta_data = handler.handle(ObtenerCuentaQuery(cuenta_id=UUID(cuenta_id)))
@@ -492,7 +754,10 @@ async def subir_foto_perfil(
 
 
 @router.get("/cuenta/email/{email}", response_model=CuentaResponse, status_code=status.HTTP_200_OK)
-async def obtener_cuenta_por_email(email: str):
+async def obtener_cuenta_por_email(
+    email: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+):
     """
     Obtiene la información de una cuenta por email.
     
@@ -510,7 +775,8 @@ async def obtener_cuenta_por_email(email: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cuenta no encontrada para el email: {email}"
             )
-        
+
+        _validar_acceso_lectura_cuenta(cuenta_data, usuario)
         return CuentaResponse(**cuenta_data)
     
     except HTTPException:

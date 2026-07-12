@@ -40,7 +40,7 @@ class Puesto:
     ubicacion: str = ""
     salario_min: Optional[float] = None
     salario_max: Optional[float] = None
-    moneda: str = "MXN"
+    moneda: str = "PEN"
     tipo_contrato: TipoContratoEnum = TipoContratoEnum.TIEMPO_COMPLETO
     fecha_publicacion: datetime = field(default_factory=datetime.now)
     fecha_cierre: Optional[datetime] = None
@@ -50,6 +50,7 @@ class Puesto:
         """Abre el puesto para recibir postulaciones"""
         if self.estado == EstadoPuestoEnum.CERRADO:
             self.estado = EstadoPuestoEnum.ABIERTO
+            self.fecha_cierre = None
             return True
         return False
     
@@ -64,10 +65,29 @@ class Puesto:
     def actualizar_informacion(self, titulo=None, descripcion=None, 
                               ubicacion=None, salario_min=None, 
                               salario_max=None, moneda=None,
-                              tipo_contrato=None) -> None:
+                              tipo_contrato=None,
+                              actualizar_salario_min: bool = False,
+                              actualizar_salario_max: bool = False) -> None:
         """Actualiza la información básica del puesto"""
         if self.estado == EstadoPuestoEnum.CERRADO:
-            raise ValueError("No se puede actualizar un puesto cerrado")
+            raise ValueError("No se puede actualizar una vacante cerrada")
+
+        salario_min_resultante = (
+            salario_min if actualizar_salario_min else self.salario_min
+        )
+        salario_max_resultante = (
+            salario_max if actualizar_salario_max else self.salario_max
+        )
+        if salario_min_resultante is not None and salario_min_resultante < 0:
+            raise ValueError("salario_min no puede ser negativo")
+        if salario_max_resultante is not None and salario_max_resultante < 0:
+            raise ValueError("salario_max no puede ser negativo")
+        if (
+            salario_min_resultante is not None
+            and salario_max_resultante is not None
+            and salario_max_resultante < salario_min_resultante
+        ):
+            raise ValueError("salario_max no puede ser menor que salario_min")
             
         if titulo is not None:
             self.titulo = titulo
@@ -75,9 +95,9 @@ class Puesto:
             self.descripcion = descripcion
         if ubicacion is not None:
             self.ubicacion = ubicacion
-        if salario_min is not None:
+        if actualizar_salario_min:
             self.salario_min = salario_min
-        if salario_max is not None:
+        if actualizar_salario_max:
             self.salario_max = salario_max
         if moneda is not None:
             self.moneda = moneda
@@ -94,7 +114,7 @@ class PuestoAggregate(AggregateRoot):
     def agregar_requisito(self, tipo: str, descripcion: str, es_obligatorio: bool = True) -> None:
         """Agrega un nuevo requisito al puesto"""
         if self.puesto.estado == EstadoPuestoEnum.CERRADO:
-            raise ValueError("No se pueden agregar requisitos a un puesto cerrado")
+            raise ValueError("No se pueden agregar requisitos a una vacante cerrada")
             
         requisito = Requisito(tipo=tipo, descripcion=descripcion, es_obligatorio=es_obligatorio)
         self.requisitos.append(requisito)
@@ -102,7 +122,7 @@ class PuestoAggregate(AggregateRoot):
     def actualizar_requisitos(self, nuevos_requisitos: List[Dict[str, Any]]) -> None:
         """Actualiza la lista completa de requisitos"""
         if self.puesto.estado == EstadoPuestoEnum.CERRADO:
-            raise ValueError("No se pueden actualizar requisitos de un puesto cerrado")
+            raise ValueError("No se pueden actualizar requisitos de una vacante cerrada")
             
         self.requisitos = [
             Requisito(
