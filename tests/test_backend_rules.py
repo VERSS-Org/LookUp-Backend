@@ -57,6 +57,7 @@ from app.infrastructure.puesto.models import (
 from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
 from app.interface.api import dependencies
 from app.interface.api.iam import router as iam_router
+from app.interface.api.postulacion import router as postulacion_router
 from app.interface.api.puesto import router as puesto_router
 
 
@@ -87,6 +88,124 @@ def test_estados_legacy_se_normalizan_y_los_finales_son_terminales():
 
     rechazado_legado = EstadoPostulacion(EstadoPostulacionEnum.RECHAZO)
     assert not rechazado_legado.es_valido("aceptado")
+
+
+def test_postulacion_endpoint_expone_hitos_estructurados(monkeypatch):
+    pendiente = EstadoPostulacion(EstadoPostulacionEnum.PENDIENTE)
+    aggregate = PostulacionAggregate(
+        postulacion=Postulacion(
+            candidato_id=uuid4(),
+            puesto_id=uuid4(),
+            estado=pendiente,
+        ),
+        estado=pendiente,
+        linea_de_tiempo=LineaDeTiempo(),
+    )
+
+    aggregate.postularse()
+    assert aggregate.cambiar_estado("en_revision")
+
+    class Repositorio:
+        @staticmethod
+        def obtener_por_id(_postulacion_id):
+            return aggregate
+
+    monkeypatch.setattr(
+        postulacion_router, "PostulacionRepositoryImpl", Repositorio
+    )
+    monkeypatch.setattr(
+        postulacion_router.postulacion_service,
+        "enriquecer_postulacion",
+        lambda postulacion: postulacion,
+    )
+    app = FastAPI()
+    app.include_router(postulacion_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: {
+        "cuenta_id": str(aggregate.postulacion.candidato_id),
+        "rol": "postulante",
+    }
+
+    response = TestClient(app).get(
+        f"/api/postulacion/{aggregate.postulacion.postulacion_id}"
+    )
+
+    assert response.status_code == 200, response.text
+    hitos = response.json()["hitos"]
+    assert hitos[0]["tipo_evento"] == "postulacion_creada"
+    assert hitos[0]["estado_nuevo"] == "pendiente"
+    assert hitos[1]["tipo_evento"] == "estado_actualizado"
+    assert hitos[1]["estado_anterior"] == "pendiente"
+    assert hitos[1]["estado_nuevo"] == "en_revision"
+    assert "en_revision" in hitos[1]["descripcion"]
+
+
+def test_eventos_endpoint_estructura_hitos_legacy(monkeypatch):
+    Session = _sqlite_session(
+        [
+            PuestoModel.__table__,
+            RequisitoPuestoModel.__table__,
+            PuestoMapeo.__table__,
+            PostulacionModel.__table__,
+            HitoModel.__table__,
+        ]
+    )
+    monkeypatch.setattr(postulacion_router, "SessionLocal", Session)
+    candidato_id = uuid4()
+    puesto_id = uuid4()
+    postulacion_id = uuid4()
+    with Session() as db:
+        puesto = PuestoModel(
+            titulo="Backend",
+            empresa=str(uuid4()),
+            descripcion="API",
+            estado="abierto",
+        )
+        db.add(puesto)
+        db.flush()
+        db.add(PuestoMapeo(uuid_id=str(puesto_id), bd_id=puesto.id))
+        postulacion = PostulacionModel(
+            postulacion_id=str(postulacion_id),
+            cuenta_id=str(candidato_id),
+            puesto_id=str(puesto_id),
+            fecha_postulacion=datetime.now(),
+            estado=EstadoPostulacionEnum.ENTREVISTA,
+            documentos_adjuntos=[],
+        )
+        db.add(postulacion)
+        db.flush()
+        db.add(
+            HitoModel(
+                postulacion_id=postulacion.id,
+                fecha=datetime.now(),
+                descripcion=(
+                    "Estado actualizado de en_revision a entrevista"
+                ),
+            )
+        )
+        db.commit()
+
+    app = FastAPI()
+    app.include_router(postulacion_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: {
+        "cuenta_id": str(candidato_id),
+        "rol": "postulante",
+    }
+
+    response = TestClient(app).get("/api/postulacion/eventos")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [
+        {
+            "tipo": "hito",
+            "tipo_evento": "estado_actualizado",
+            "titulo": "Backend",
+            "descripcion": "Estado actualizado de en_revision a entrevista",
+            "fecha": response.json()[0]["fecha"],
+            "postulacion_id": str(postulacion_id),
+            "estado_anterior": "en_revision",
+            "estado_nuevo": "entrevista",
+        }
+    ]
 
 
 def test_tokens_generados_son_unicos_y_el_historial_usa_datetime():

@@ -23,6 +23,10 @@ This is a complete REST API backend for a job application platform built with **
 > - `POST /api/puesto/` y `PUT /api/puesto/{id}` crean y actualizan vacantes y
 >   validan el rango salarial
 >   (`salario_max >= salario_min >= 0`).
+> - Los elementos de `hitos` y `GET /api/postulacion/eventos` incluyen
+>   `tipo_evento`, `estado_anterior` y `estado_nuevo`. Los estados siguen siendo
+>   valores canónicos (`en_revision`, etc.) para que cada cliente los localice;
+>   `descripcion` se conserva por compatibilidad y no debe usarse como texto UI.
 
 ---
 
@@ -580,6 +584,37 @@ GET /postulacion/?candidato_id=550e8400-e29b-41d4-a716-446655440000&enriquecer=f
 **Error Responses**:
 - `404 Not Found`: Application not found
 - `400 Bad Request`: Invalid status value
+
+---
+
+### 5. Get Recent Application Events
+
+**Endpoint**: `GET /postulacion/eventos`
+
+**Purpose**: Return the authenticated user's recent application events with
+structured metadata suitable for localization.
+
+**Response** (200 OK):
+```json
+[
+  {
+    "tipo": "hito",
+    "tipo_evento": "estado_actualizado",
+    "titulo": "Desarrollador Backend",
+    "descripcion": "Estado actualizado de pendiente a en_revision",
+    "fecha": "2026-07-12T14:30:00",
+    "postulacion_id": "770e8400-e29b-41d4-a716-446655440002",
+    "estado_anterior": "pendiente",
+    "estado_nuevo": "en_revision"
+  }
+]
+```
+
+Possible `tipo_evento` values are `postulacion_creada`,
+`estado_actualizado`, `hito`, and `postulacion_recibida`. Clients should build
+visible text from `tipo_evento` and the structured state fields, translating
+`en_revision` as **En revisión** in Spanish. `descripcion` remains available for
+backward compatibility.
 
 ---
 

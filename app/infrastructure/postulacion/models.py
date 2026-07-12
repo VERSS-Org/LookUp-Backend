@@ -43,6 +43,9 @@ class HitoModel(Base):
     postulacion_id = Column(Integer, ForeignKey("postulaciones.id"), nullable=False)
     fecha = Column(DateTime, nullable=False)
     descripcion = Column(Text, nullable=False)
+    tipo_evento = Column(String(40), nullable=True)
+    estado_anterior = Column(String(30), nullable=True)
+    estado_nuevo = Column(String(30), nullable=True)
     
     # Relaciones
     postulacion = relationship("PostulacionModel", back_populates="hitos")

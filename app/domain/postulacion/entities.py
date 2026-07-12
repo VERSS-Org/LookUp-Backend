@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from app.domain.common import AggregateRoot
@@ -32,6 +32,14 @@ ALIASES_ESTADO_POSTULACION = {
 }
 
 
+class TipoHitoEnum(str, Enum):
+    """Tipos estables que permiten presentar la linea de tiempo sin parsear texto."""
+
+    POSTULACION_CREADA = "postulacion_creada"
+    ESTADO_ACTUALIZADO = "estado_actualizado"
+    HITO = "hito"
+
+
 def normalizar_estado_postulacion(estado: object) -> str:
     """Devuelve la terminologia publica canonica de un estado.
 
@@ -41,6 +49,42 @@ def normalizar_estado_postulacion(estado: object) -> str:
     valor = estado.value if isinstance(estado, EstadoPostulacionEnum) else str(estado)
     valor = valor.strip().lower()
     return ALIASES_ESTADO_POSTULACION.get(valor, valor)
+
+
+def extraer_metadatos_hito(descripcion: str) -> Dict[str, Optional[str]]:
+    """Recupera metadatos de hitos historicos almacenados solo como texto."""
+    descripcion = descripcion.strip()
+    prefijo_cambio = "Estado actualizado de "
+    if descripcion.startswith(prefijo_cambio):
+        estados = descripcion[len(prefijo_cambio):].split(" a ", maxsplit=1)
+        if len(estados) == 2:
+            anterior = normalizar_estado_postulacion(estados[0])
+            nuevo = normalizar_estado_postulacion(estados[1])
+            if (
+                anterior in ESTADOS_POSTULACION_CANONICOS
+                and nuevo in ESTADOS_POSTULACION_CANONICOS
+            ):
+                return {
+                    "tipo_evento": TipoHitoEnum.ESTADO_ACTUALIZADO.value,
+                    "estado_anterior": anterior,
+                    "estado_nuevo": nuevo,
+                }
+
+    prefijo_creacion = "Postulación creada en estado "
+    if descripcion.startswith(prefijo_creacion):
+        nuevo = normalizar_estado_postulacion(descripcion[len(prefijo_creacion):])
+        if nuevo in ESTADOS_POSTULACION_CANONICOS:
+            return {
+                "tipo_evento": TipoHitoEnum.POSTULACION_CREADA.value,
+                "estado_anterior": None,
+                "estado_nuevo": nuevo,
+            }
+
+    return {
+        "tipo_evento": TipoHitoEnum.HITO.value,
+        "estado_anterior": None,
+        "estado_nuevo": None,
+    }
 
 
 @dataclass(frozen=True)
@@ -73,6 +117,9 @@ class Hito:
     hito_id: UUID = field(default_factory=uuid4)
     fecha: datetime = field(default_factory=datetime.now)
     descripcion: str = ""
+    tipo_evento: str = TipoHitoEnum.HITO.value
+    estado_anterior: Optional[str] = None
+    estado_nuevo: Optional[str] = None
     
     def actualizar_descripcion(self, nueva_descripcion: str) -> None:
         """Actualiza la descripción del hito"""
@@ -88,9 +135,22 @@ class LineaDeTiempo:
     """Value Object que registra los hitos relevantes de una postulación"""
     lista_hitos: List[Hito] = field(default_factory=list)
     
-    def agregar_hito(self, fecha: datetime, descripcion: str) -> Hito:
+    def agregar_hito(
+        self,
+        fecha: datetime,
+        descripcion: str,
+        tipo_evento: str = TipoHitoEnum.HITO.value,
+        estado_anterior: Optional[str] = None,
+        estado_nuevo: Optional[str] = None,
+    ) -> Hito:
         """Agrega un nuevo hito a la línea de tiempo"""
-        hito = Hito(fecha=fecha, descripcion=descripcion)
+        hito = Hito(
+            fecha=fecha,
+            descripcion=descripcion,
+            tipo_evento=tipo_evento,
+            estado_anterior=estado_anterior,
+            estado_nuevo=estado_nuevo,
+        )
         self.lista_hitos.append(hito)
         return hito
 
@@ -130,7 +190,9 @@ class PostulacionAggregate(AggregateRoot):
         """Registra una nueva postulación"""
         self.linea_de_tiempo.agregar_hito(
             fecha=self.postulacion.fecha_postulacion,
-            descripcion=f"Postulación creada en estado {self.estado.valor.value}"
+            descripcion=f"Postulación creada en estado {self.estado.valor.value}",
+            tipo_evento=TipoHitoEnum.POSTULACION_CREADA.value,
+            estado_nuevo=normalizar_estado_postulacion(self.estado.valor),
         )
         # Aquí podríamos agregar un evento de dominio
         self.add_event(PostulacionCreada(self.postulacion.postulacion_id))
@@ -153,7 +215,10 @@ class PostulacionAggregate(AggregateRoot):
                     "Estado actualizado de "
                     f"{normalizar_estado_postulacion(estado_anterior)} "
                     f"a {nuevo_estado_enum.value}"
-                )
+                ),
+                tipo_evento=TipoHitoEnum.ESTADO_ACTUALIZADO.value,
+                estado_anterior=normalizar_estado_postulacion(estado_anterior),
+                estado_nuevo=nuevo_estado_enum.value,
             )
             # Evento de dominio
             self.add_event(EstadoPostulacionActualizado(

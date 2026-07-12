@@ -7,10 +7,32 @@ from app.domain.postulacion.entities import (
     EstadoPostulacion,
     LineaDeTiempo,
     Hito,
+    extraer_metadatos_hito,
+    normalizar_estado_postulacion,
 )
 from app.domain.postulacion.repositories import PostulacionRepository
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.postulacion.models import PostulacionModel, HitoModel
+
+
+def _hito_desde_modelo(hito_db: HitoModel) -> Hito:
+    metadatos = extraer_metadatos_hito(hito_db.descripcion)
+    return Hito(
+        hito_id=UUID(f"00000000-0000-0000-0000-{hito_db.id:012d}"),
+        fecha=hito_db.fecha,
+        descripcion=hito_db.descripcion,
+        tipo_evento=hito_db.tipo_evento or metadatos["tipo_evento"],
+        estado_anterior=(
+            normalizar_estado_postulacion(hito_db.estado_anterior)
+            if hito_db.estado_anterior
+            else metadatos["estado_anterior"]
+        ),
+        estado_nuevo=(
+            normalizar_estado_postulacion(hito_db.estado_nuevo)
+            if hito_db.estado_nuevo
+            else metadatos["estado_nuevo"]
+        ),
+    )
 
 
 class PostulacionRepositoryImpl(PostulacionRepository):
@@ -63,6 +85,9 @@ class PostulacionRepositoryImpl(PostulacionRepository):
                     postulacion_id=post_db.id,
                     fecha=hito.fecha,
                     descripcion=hito.descripcion,
+                    tipo_evento=hito.tipo_evento,
+                    estado_anterior=hito.estado_anterior,
+                    estado_nuevo=hito.estado_nuevo,
                 )
                 db.add(hito_db)
 
@@ -104,12 +129,7 @@ class PostulacionRepositoryImpl(PostulacionRepository):
 
             linea_tiempo = LineaDeTiempo()
             for hito_db in post_db.hitos:
-                hito = Hito(
-                    hito_id=UUID(f"00000000-0000-0000-0000-{hito_db.id:012d}"),
-                    fecha=hito_db.fecha,
-                    descripcion=hito_db.descripcion,
-                )
-                linea_tiempo.lista_hitos.append(hito)
+                linea_tiempo.lista_hitos.append(_hito_desde_modelo(hito_db))
 
             return PostulacionAggregate(
                 postulacion=post, estado=post.estado, linea_de_tiempo=linea_tiempo
@@ -144,12 +164,7 @@ class PostulacionRepositoryImpl(PostulacionRepository):
 
                 linea_tiempo = LineaDeTiempo()
                 for hito_db in post_db.hitos:
-                    hito = Hito(
-                        hito_id=UUID(f"00000000-0000-0000-0000-{hito_db.id:012d}"),
-                        fecha=hito_db.fecha,
-                        descripcion=hito_db.descripcion,
-                    )
-                    linea_tiempo.lista_hitos.append(hito)
+                    linea_tiempo.lista_hitos.append(_hito_desde_modelo(hito_db))
 
                 resultado.append(
                     PostulacionAggregate(
@@ -190,12 +205,7 @@ class PostulacionRepositoryImpl(PostulacionRepository):
 
                 linea_tiempo = LineaDeTiempo()
                 for hito_db in post_db.hitos:
-                    hito = Hito(
-                        hito_id=UUID(f"00000000-0000-0000-0000-{hito_db.id:012d}"),
-                        fecha=hito_db.fecha,
-                        descripcion=hito_db.descripcion,
-                    )
-                    linea_tiempo.lista_hitos.append(hito)
+                    linea_tiempo.lista_hitos.append(_hito_desde_modelo(hito_db))
 
                 resultado.append(
                     PostulacionAggregate(
