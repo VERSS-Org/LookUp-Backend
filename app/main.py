@@ -67,6 +67,9 @@ def _ensure_runtime_schema() -> None:
         "documentos_adjuntos",
         "documentos_adjuntos JSON NOT NULL DEFAULT '[]'",
     )
+    _ensure_column("hitos", "tipo_evento", "tipo_evento VARCHAR(40)")
+    _ensure_column("hitos", "estado_anterior", "estado_anterior VARCHAR(30)")
+    _ensure_column("hitos", "estado_nuevo", "estado_nuevo VARCHAR(30)")
     _ensure_column(
         "contactos_postulacion",
         "remitente_rol",

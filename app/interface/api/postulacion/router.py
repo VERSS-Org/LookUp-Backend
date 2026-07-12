@@ -8,7 +8,10 @@ from app.application.postulacion.command_handlers import (
     ActualizarEstadoPostulacionHandler, ActualizarEstadoCommand
 )
 from app.application.postulacion.postulacion_service import PostulacionService
-from app.domain.postulacion.entities import normalizar_estado_postulacion
+from app.domain.postulacion.entities import (
+    extraer_metadatos_hito,
+    normalizar_estado_postulacion,
+)
 from app.infrastructure.contacto.models import ContactoPostulacionModel, FeedbackModel
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.iam.models import CuentaModel
@@ -20,7 +23,7 @@ from app.interface.api.dependencies import obtener_usuario_actual
 
 from .schemas import (
     PostulacionCreate, PostulacionEnriquecidaResponse,
-    EstadoUpdate, EstadoPostulacionEnum
+    EstadoUpdate, EstadoPostulacionEnum, EventoRecienteResponse
 )
 
 router = APIRouter(prefix="/postulacion", tags=["Postulación"])
@@ -57,7 +60,10 @@ def _serialize_postulacion(aggregate) -> dict:
             {
                 "hito_id": str(hito.hito_id),
                 "fecha": hito.fecha.isoformat(),
-                "descripcion": hito.descripcion
+                "descripcion": hito.descripcion,
+                "tipo_evento": hito.tipo_evento,
+                "estado_anterior": hito.estado_anterior,
+                "estado_nuevo": hito.estado_nuevo,
             }
             for hito in aggregate.linea_de_tiempo.lista_hitos
         ]
@@ -145,7 +151,7 @@ async def crear_postulacion(
 ESTADOS_RETIRABLES = {"pendiente", "en_revision", "entrevista"}
 
 
-@router.get("/eventos")
+@router.get("/eventos", response_model=List[EventoRecienteResponse])
 async def eventos_recientes(usuario: dict = Depends(obtener_usuario_actual)):
     """
     Novedades de los últimos 7 días para el usuario autenticado:
@@ -180,12 +186,26 @@ async def eventos_recientes(usuario: dict = Depends(obtener_usuario_actual)):
                 postulacion = por_pk.get(hito.postulacion_id)
                 if not postulacion:
                     continue
+                metadatos = extraer_metadatos_hito(hito.descripcion)
                 eventos.append({
                     "tipo": "hito",
+                    "tipo_evento": (
+                        hito.tipo_evento or metadatos["tipo_evento"]
+                    ),
                     "titulo": titulos.get(postulacion.puesto_id),
                     "descripcion": hito.descripcion,
                     "fecha": hito.fecha.isoformat(),
                     "postulacion_id": postulacion.postulacion_id,
+                    "estado_anterior": (
+                        normalizar_estado_postulacion(hito.estado_anterior)
+                        if hito.estado_anterior
+                        else metadatos["estado_anterior"]
+                    ),
+                    "estado_nuevo": (
+                        normalizar_estado_postulacion(hito.estado_nuevo)
+                        if hito.estado_nuevo
+                        else metadatos["estado_nuevo"]
+                    ),
                 })
         elif rol == "empresa":
             bd_ids = [
@@ -221,10 +241,12 @@ async def eventos_recientes(usuario: dict = Depends(obtener_usuario_actual)):
                 nombre = candidatos.get(postulacion.cuenta_id, "Un postulante")
                 eventos.append({
                     "tipo": "postulacion",
+                    "tipo_evento": "postulacion_recibida",
                     "titulo": titulos.get(postulacion.puesto_id),
                     "descripcion": nombre,
                     "fecha": postulacion.fecha_postulacion.isoformat(),
                     "postulacion_id": postulacion.postulacion_id,
+                    "estado_nuevo": "pendiente",
                 })
         else:
             raise HTTPException(

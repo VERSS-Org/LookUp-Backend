@@ -29,6 +29,22 @@ class HitoResponse(BaseModel):
     hito_id: str
     fecha: datetime
     descripcion: str
+    tipo_evento: str = "hito"
+    estado_anterior: Optional[str] = None
+    estado_nuevo: Optional[str] = None
+
+
+class EventoRecienteResponse(BaseModel):
+    """Evento estructurado; ``descripcion`` se mantiene para clientes antiguos."""
+
+    tipo: str
+    tipo_evento: str
+    titulo: Optional[str] = None
+    descripcion: str
+    fecha: datetime
+    postulacion_id: str
+    estado_anterior: Optional[str] = None
+    estado_nuevo: Optional[str] = None
 
 
 class CandidatoInfoResponse(BaseModel):
