@@ -19,7 +19,13 @@ copy .env.example .env
 ```
 
 Edita `.env` con tus valores locales. No subas `.env` ni credenciales reales al repositorio.
-Si sirves las apps web en otros puertos, agrégalos a `CORS_ORIGINS`.
+Con `ENVIRONMENT=development`, CORS acepta automáticamente `localhost` y
+`127.0.0.1` en cualquier puerto; por ejemplo `8085` y `8095`. No hace falta
+agregar cada puerto a `CORS_ORIGINS`.
+
+En producción esa regla local se desactiva. Configura en `CORS_ORIGINS` solo los
+orígenes HTTPS exactos que deban consumir la API; el comodín `*` se rechaza en
+ese entorno.
 
 ## Ejecución local
 
