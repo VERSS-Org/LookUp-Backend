@@ -145,6 +145,19 @@ class CuentaUpdateRequest(BaseModel):
     def normalizar_dato_opcional(cls, value: Optional[str]) -> Optional[str]:
         return _normalizar_texto_opcional(value)
 
+    @field_validator("perfil")
+    @classmethod
+    def validar_preferencias_perfil(
+        cls, value: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        if (
+            value is not None
+            and "mostrar_email" in value
+            and not isinstance(value["mostrar_email"], bool)
+        ):
+            raise ValueError("perfil.mostrar_email debe ser booleano")
+        return value
+
 
 # Esquemas de respuesta
 class TokenResponse(BaseModel):
@@ -161,7 +174,7 @@ class CuentaResponse(BaseModel):
     """Respuesta con datos de cuenta"""
     cuenta_id: str
     nombre_completo: str
-    email: str
+    email: Optional[str] = None
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None

@@ -51,7 +51,7 @@ class CandidatoInfoResponse(BaseModel):
     """Información del postulante para enriquecer la postulación."""
     cuenta_id: str
     nombre_completo: str
-    email: str
+    email: Optional[str] = None
     carrera: Optional[str] = None
     telefono: Optional[str] = None
     ciudad: Optional[str] = None

@@ -22,6 +22,7 @@ from app.application.iam.query_handlers import (
     VerificarTokenQueryHandler, VerificarTokenQuery
 )
 from app.config import settings
+from app.domain.iam.privacy import email_visible_para_usuario
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.iam.models import CuentaModel, TokenModel
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
@@ -123,6 +124,15 @@ def _validar_acceso_lectura_cuenta(cuenta_data: dict, usuario: dict) -> None:
     )
 
 
+def _aplicar_privacidad_email(cuenta_data: dict, usuario: dict) -> dict:
+    """Devuelve una copia apta para el solicitante sin mutar la consulta."""
+
+    respuesta = cuenta_data.copy()
+    if not email_visible_para_usuario(cuenta_data, usuario):
+        respuesta["email"] = None
+    return respuesta
+
+
 def _eliminar_foto_local(foto_url: Optional[str], cuenta_id: str) -> None:
     if not foto_url:
         return
@@ -170,6 +180,7 @@ async def registrar_cuenta(request: CrearCuentaRequest):
             telefono=cuenta_data['telefono'],
             ciudad=cuenta_data['ciudad'],
             foto_url=cuenta_data.get('foto_url'),
+            perfil=cuenta_data.get('perfil'),
             rol=cuenta_data['rol'],
             estado=cuenta_data['estado'],
             fecha_creacion=cuenta_data['fecha_creacion'],
@@ -611,7 +622,7 @@ async def obtener_cuenta(
             )
 
         _validar_acceso_lectura_cuenta(cuenta_data, usuario)
-        return CuentaResponse(**cuenta_data)
+        return CuentaResponse(**_aplicar_privacidad_email(cuenta_data, usuario))
     
     except HTTPException:
         raise
@@ -650,7 +661,12 @@ async def actualizar_cuenta(
         )
         cuenta = cuenta_aggregate.cuenta
         for campo, valor in updates.items():
-            setattr(cuenta, campo, valor)
+            if campo == "perfil" and valor is not None:
+                perfil_actual = dict(cuenta.perfil or {})
+                perfil_actual.update(valor)
+                cuenta.perfil = perfil_actual
+            else:
+                setattr(cuenta, campo, valor)
         cuenta.fecha_actualizacion = datetime.now()
 
         repository.guardar(cuenta_aggregate)
@@ -777,7 +793,7 @@ async def obtener_cuenta_por_email(
             )
 
         _validar_acceso_lectura_cuenta(cuenta_data, usuario)
-        return CuentaResponse(**cuenta_data)
+        return CuentaResponse(**_aplicar_privacidad_email(cuenta_data, usuario))
     
     except HTTPException:
         raise

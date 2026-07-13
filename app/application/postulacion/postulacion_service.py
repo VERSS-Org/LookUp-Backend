@@ -9,6 +9,7 @@ from uuid import UUID
 from app.infrastructure.postulacion.repositories import PostulacionRepositoryImpl
 from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
 from app.infrastructure.iam.repositories import CuentaRepositoryImpl
+from app.domain.iam.privacy import mostrar_email_publicamente
 
 # Importar tipos de dominio para reconocer aggregates
 
@@ -30,7 +31,8 @@ class PostulacionService:
         postulacion_data: Dict[str, Any],
         incluir_candidato: bool = True,
         incluir_puesto: bool = True,
-        incluir_empresa: bool = True
+        incluir_empresa: bool = True,
+        revelar_email_candidato: bool = False,
     ) -> Dict[str, Any]:
         """
         Enriquece una postulación individual con datos relacionados
@@ -50,7 +52,8 @@ class PostulacionService:
             # Obtener información del candidato
             if incluir_candidato and "candidato_id" in postulacion_data:
                 candidato_info = self._obtener_info_candidato(
-                    UUID(postulacion_data["candidato_id"])
+                    UUID(postulacion_data["candidato_id"]),
+                    revelar_email=revelar_email_candidato,
                 )
                 if candidato_info:
                     postulacion_enriquecida["candidato"] = candidato_info
@@ -80,7 +83,8 @@ class PostulacionService:
         postulaciones: List[Dict[str, Any]],
         incluir_candidato: bool = True,
         incluir_puesto: bool = True,
-        incluir_empresa: bool = True
+        incluir_empresa: bool = True,
+        revelar_email_candidato: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Enriquece múltiples postulaciones con datos relacionados
@@ -99,12 +103,17 @@ class PostulacionService:
                 post,
                 incluir_candidato=incluir_candidato,
                 incluir_puesto=incluir_puesto,
-                incluir_empresa=incluir_empresa
+                incluir_empresa=incluir_empresa,
+                revelar_email_candidato=revelar_email_candidato,
             )
             for post in postulaciones
         ]
     
-    def _obtener_info_candidato(self, candidato_id: UUID) -> Optional[Dict[str, Any]]:
+    def _obtener_info_candidato(
+        self,
+        candidato_id: UUID,
+        revelar_email: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """Obtiene información básica del candidato"""
         try:
             cuenta = self.cuenta_repo.obtener_por_id(candidato_id)
@@ -121,6 +130,7 @@ class PostulacionService:
                 telefono = getattr(cuenta_obj, "telefono", None)
                 ciudad = getattr(cuenta_obj, "ciudad", None)
                 foto_url = getattr(cuenta_obj, "foto_url", None)
+                perfil = getattr(cuenta_obj, "perfil", None)
             elif isinstance(cuenta, dict):
                 nombre = cuenta.get("nombre_completo", "")
                 email = cuenta.get("email", "")
@@ -128,6 +138,7 @@ class PostulacionService:
                 telefono = cuenta.get("telefono")
                 ciudad = cuenta.get("ciudad")
                 foto_url = cuenta.get("foto_url")
+                perfil = cuenta.get("perfil")
             else:
                 # Otros tipos: intentar acceder por atributos comunes
                 nombre = getattr(cuenta, "nombre_completo", "")
@@ -136,6 +147,10 @@ class PostulacionService:
                 telefono = getattr(cuenta, "telefono", None)
                 ciudad = getattr(cuenta, "ciudad", None)
                 foto_url = getattr(cuenta, "foto_url", None)
+                perfil = getattr(cuenta, "perfil", None)
+
+            if not revelar_email and not mostrar_email_publicamente(perfil):
+                email = None
 
             return {
                 "cuenta_id": str(candidato_id),

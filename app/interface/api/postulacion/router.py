@@ -132,7 +132,8 @@ async def crear_postulacion(
         if aggregate is None:
             raise RuntimeError("No se pudo recuperar la postulación creada")
         return postulacion_service.enriquecer_postulacion(
-            _serialize_postulacion(aggregate)
+            _serialize_postulacion(aggregate),
+            revelar_email_candidato=True,
         )
     except HTTPException:
         raise
@@ -369,7 +370,10 @@ async def obtener_postulacion(
             )
 
         _require_postulacion_access(aggregate, usuario)
-        return postulacion_service.enriquecer_postulacion(_serialize_postulacion(aggregate))
+        return postulacion_service.enriquecer_postulacion(
+            _serialize_postulacion(aggregate),
+            revelar_email_candidato=usuario.get("rol") == "postulante",
+        )
     except HTTPException:
         raise
     except Exception:
@@ -416,7 +420,10 @@ async def listar_postulaciones(
 
         respuestas = [_serialize_postulacion(aggregate) for aggregate in resultados]
         if enriquecer:
-            return postulacion_service.enriquecer_postulaciones(respuestas)
+            return postulacion_service.enriquecer_postulaciones(
+                respuestas,
+                revelar_email_candidato=usuario.get("rol") == "postulante",
+            )
         return respuestas
     except HTTPException:
         raise
