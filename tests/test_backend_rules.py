@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -117,7 +118,7 @@ def test_postulacion_endpoint_expone_hitos_estructurados(monkeypatch):
     monkeypatch.setattr(
         postulacion_router.postulacion_service,
         "enriquecer_postulacion",
-        lambda postulacion: postulacion,
+        lambda postulacion, **_kwargs: postulacion,
     )
     app = FastAPI()
     app.include_router(postulacion_router.router, prefix="/api")
@@ -257,6 +258,16 @@ def test_registro_crea_cuenta_activa_sin_verificacion_ficticia():
     )
 
     assert repository.aggregate.cuenta.estado == EstadoCuentaEnum.ACTIVA
+    assert repository.aggregate.cuenta.perfil == {"mostrar_email": True}
+
+
+def test_preferencia_de_email_exige_booleano():
+    assert CuentaUpdateRequest(
+        perfil={"mostrar_email": False}
+    ).perfil == {"mostrar_email": False}
+
+    with pytest.raises(ValueError):
+        CuentaUpdateRequest(perfil={"mostrar_email": "false"})
 
 
 def test_empresa_actualiza_telefono_y_ciudad_por_endpoint(monkeypatch):
@@ -709,6 +720,195 @@ def test_empresa_solo_ve_perfil_de_postulantes_a_sus_vacantes(monkeypatch):
             {"cuenta_id": str(otra_empresa_id), "rol": "empresa"},
         )
     assert error.value.status_code == 403
+
+
+def _insertar_escenario_privacidad_email(Session, perfil_candidato):
+    empresa_id = uuid4()
+    candidato_id = uuid4()
+    puesto_id = uuid4()
+    postulacion_id = uuid4()
+    with Session() as db:
+        db.add_all([
+            CuentaModel(
+                id=empresa_id,
+                email="empresa@example.com",
+                hash_password="hash",
+                nombre_completo="Empresa Demo",
+                rol=RolEnum.EMPRESA,
+                estado=EstadoCuentaEnum.ACTIVA,
+                activa=True,
+                fecha_creacion=datetime.now(),
+            ),
+            CuentaModel(
+                id=candidato_id,
+                email="postulante@example.com",
+                hash_password="hash",
+                nombre_completo="Postulante Demo",
+                perfil=json.dumps(perfil_candidato),
+                rol=RolEnum.POSTULANTE,
+                estado=EstadoCuentaEnum.ACTIVA,
+                activa=True,
+                fecha_creacion=datetime.now(),
+            ),
+        ])
+        puesto = PuestoModel(
+            titulo="Backend",
+            empresa=str(empresa_id),
+            descripcion="API",
+            estado="abierto",
+        )
+        db.add(puesto)
+        db.flush()
+        db.add(PuestoMapeo(uuid_id=str(puesto_id), bd_id=puesto.id))
+        db.add(
+            PostulacionModel(
+                postulacion_id=str(postulacion_id),
+                cuenta_id=str(candidato_id),
+                puesto_id=str(puesto_id),
+                fecha_postulacion=datetime.now(),
+                estado=EstadoPostulacionEnum.PENDIENTE,
+                documentos_adjuntos=[],
+            )
+        )
+        db.commit()
+    return empresa_id, candidato_id, puesto_id, postulacion_id
+
+
+def test_preferencia_email_se_guarda_y_protege_perfiles_autorizados(monkeypatch):
+    Session = _sqlite_session(
+        [
+            CuentaModel.__table__,
+            TokenModel.__table__,
+            HistorialAccesoModel.__table__,
+            PuestoModel.__table__,
+            RequisitoPuestoModel.__table__,
+            PuestoMapeo.__table__,
+            PostulacionModel.__table__,
+            HitoModel.__table__,
+        ]
+    )
+    import app.infrastructure.iam.repositories as iam_repository_module
+
+    monkeypatch.setattr(iam_repository_module, "SessionLocal", Session)
+    monkeypatch.setattr(iam_router, "SessionLocal", Session)
+    empresa_id, candidato_id, _, _ = _insertar_escenario_privacidad_email(
+        Session,
+        {"descripcion": "Perfil legado"},
+    )
+
+    usuario = {
+        "cuenta_id": str(empresa_id),
+        "rol": "empresa",
+    }
+    app = FastAPI()
+    app.include_router(iam_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: usuario
+    client = TestClient(app)
+
+    # Compatibilidad: un perfil anterior a la preferencia sigue siendo visible.
+    response = client.get(f"/api/iam/cuenta/{candidato_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == "postulante@example.com"
+
+    # El postulante guarda solo la preferencia sin perder el resto del perfil.
+    usuario.update({"cuenta_id": str(candidato_id), "rol": "postulante"})
+    response = client.patch(
+        f"/api/iam/cuenta/{candidato_id}",
+        json={"perfil": {"mostrar_email": False}},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == "postulante@example.com"
+    assert response.json()["perfil"] == {
+        "descripcion": "Perfil legado",
+        "mostrar_email": False,
+    }
+
+    # La empresa autorizada ya no lo obtiene por ID ni por la ruta por correo.
+    usuario.update({"cuenta_id": str(empresa_id), "rol": "empresa"})
+    response = client.get(f"/api/iam/cuenta/{candidato_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] is None
+    response = client.get("/api/iam/cuenta/email/postulante@example.com")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] is None
+
+    # La privacidad nunca oculta las credenciales al titular autenticado.
+    usuario.update({"cuenta_id": str(candidato_id), "rol": "postulante"})
+    response = client.get(f"/api/iam/cuenta/{candidato_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == "postulante@example.com"
+    response = client.get("/api/iam/me")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == "postulante@example.com"
+
+    # La decisión es reversible: al volver a mostrarlo, la empresa lo recibe.
+    response = client.patch(
+        f"/api/iam/cuenta/{candidato_id}",
+        json={"perfil": {"mostrar_email": True}},
+    )
+    assert response.status_code == 200, response.text
+    usuario.update({"cuenta_id": str(empresa_id), "rol": "empresa"})
+    response = client.get(f"/api/iam/cuenta/{candidato_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == "postulante@example.com"
+
+
+def test_postulaciones_no_filtran_email_oculto_a_la_empresa(monkeypatch):
+    Session = _sqlite_session(
+        [
+            CuentaModel.__table__,
+            TokenModel.__table__,
+            HistorialAccesoModel.__table__,
+            PuestoModel.__table__,
+            RequisitoPuestoModel.__table__,
+            PuestoMapeo.__table__,
+            PostulacionModel.__table__,
+            HitoModel.__table__,
+        ]
+    )
+    import app.infrastructure.iam.repositories as iam_repository_module
+    import app.infrastructure.postulacion.repositories as postulacion_repository_module
+    import app.infrastructure.puesto.repositories as puesto_repository_module
+
+    monkeypatch.setattr(iam_repository_module, "SessionLocal", Session)
+    monkeypatch.setattr(postulacion_repository_module, "SessionLocal", Session)
+    monkeypatch.setattr(puesto_repository_module, "SessionLocal", Session)
+    empresa_id, candidato_id, puesto_id, postulacion_id = (
+        _insertar_escenario_privacidad_email(
+            Session,
+            {"mostrar_email": False},
+        )
+    )
+
+    usuario = {"cuenta_id": str(empresa_id), "rol": "empresa"}
+    app = FastAPI()
+    app.include_router(postulacion_router.router, prefix="/api")
+    app.dependency_overrides[dependencies.obtener_usuario_actual] = lambda: usuario
+    client = TestClient(app)
+
+    response = client.get(f"/api/postulacion/{postulacion_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["candidato"]["email"] is None
+
+    response = client.get(f"/api/postulacion/?puesto_id={puesto_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["candidato"]["email"] is None
+
+    response = client.patch(
+        f"/api/postulacion/{postulacion_id}/estado",
+        json={"nuevo_estado": "en_revision"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["candidato"]["email"] is None
+
+    usuario.update({"cuenta_id": str(candidato_id), "rol": "postulante"})
+    response = client.get(f"/api/postulacion/{postulacion_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["candidato"]["email"] == "postulante@example.com"
+
+    response = client.get(f"/api/postulacion/?candidato_id={candidato_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["candidato"]["email"] == "postulante@example.com"
 
 
 def test_seed_demo_exige_confirmacion_y_bloquea_host_remoto(monkeypatch):

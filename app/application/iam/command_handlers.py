@@ -53,7 +53,12 @@ class CrearCuentaHandler(CommandHandler):
         # Crear entidad Cuenta
         cuenta = Cuenta(
             rol=rol_enum,
-            estado=EstadoCuentaEnum.ACTIVA
+            estado=EstadoCuentaEnum.ACTIVA,
+            perfil=(
+                {"mostrar_email": True}
+                if rol_enum == RolEnum.POSTULANTE
+                else None
+            ),
         )
         
         # Crear agregado
