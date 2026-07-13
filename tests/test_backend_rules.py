@@ -57,6 +57,7 @@ from app.infrastructure.puesto.models import (
 from app.infrastructure.puesto.repositories import PuestoRepositoryImpl
 from app.interface.api import dependencies
 from app.interface.api.iam import router as iam_router
+from app.interface.api.iam.schemas import CrearCuentaRequest, CuentaUpdateRequest
 from app.interface.api.postulacion import router as postulacion_router
 from app.interface.api.puesto import router as puesto_router
 
@@ -217,6 +218,21 @@ def test_tokens_generados_son_unicos_y_el_historial_usa_datetime():
     aggregate = CuentaAggregate(cuenta=Cuenta())
     aggregate.aplicar_login_exitoso()
     assert isinstance(aggregate.historial_accesos[0]["fecha"], datetime)
+
+
+def test_carrera_se_normaliza_al_registrar_y_actualizar_perfil():
+    registro = CrearCuentaRequest(
+        nombre_completo="Luis Rodriguez",
+        email="luis@example.com",
+        password="Clave123!",
+        carrera="  Ingenieria de Software  ",
+    )
+    actualizacion = CuentaUpdateRequest(carrera="  Ingenieria de Software  ")
+    carrera_vacia = CuentaUpdateRequest(carrera="   ")
+
+    assert registro.carrera == "Ingenieria de Software"
+    assert actualizacion.carrera == "Ingenieria de Software"
+    assert carrera_vacia.carrera is None
 
 
 def test_registro_crea_cuenta_activa_sin_verificacion_ficticia():
