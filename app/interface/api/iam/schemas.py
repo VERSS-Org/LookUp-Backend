@@ -64,9 +64,9 @@ class CrearCuentaRequest(BaseModel):
     def normalizar_email(cls, value: EmailStr) -> str:
         return _normalizar_email(value)
 
-    @field_validator("telefono", "ciudad")
+    @field_validator("carrera", "telefono", "ciudad")
     @classmethod
-    def normalizar_contacto(cls, value: Optional[str]) -> Optional[str]:
+    def normalizar_dato_opcional(cls, value: Optional[str]) -> Optional[str]:
         return _normalizar_texto_opcional(value)
 
 
@@ -140,9 +140,9 @@ class CuentaUpdateRequest(BaseModel):
             raise ValueError("nombre_completo no puede estar vacío")
         return value
 
-    @field_validator("telefono", "ciudad")
+    @field_validator("carrera", "telefono", "ciudad")
     @classmethod
-    def normalizar_contacto(cls, value: Optional[str]) -> Optional[str]:
+    def normalizar_dato_opcional(cls, value: Optional[str]) -> Optional[str]:
         return _normalizar_texto_opcional(value)
 
 
