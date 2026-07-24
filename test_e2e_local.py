@@ -108,6 +108,18 @@ check("postulacion duplicada 400", r2.status_code == 400, r2.text)
 # 7. Empresa lista candidatos del puesto
 r = requests.get(f"{BASE}/postulacion/?puesto_id={puesto['puesto_id']}", headers=emp_h)
 check("empresa lista candidatos 200", r.status_code == 200 and len(r.json()) == 1, r.text)
+r = requests.get(f"{BASE}/puesto/", headers=emp_h)
+puesto_empresa = next(
+    (item for item in r.json() if item["puesto_id"] == puesto["puesto_id"]),
+    {},
+)
+check(
+    "vacante expone conteos de postulantes",
+    r.status_code == 200
+    and puesto_empresa.get("postulantes_total") == 1
+    and puesto_empresa.get("postulantes_activos") == 1,
+    r.text,
+)
 
 # 8. Cambiar estado a entrevista
 r = requests.patch(
@@ -158,11 +170,15 @@ check("estado tras aprobacion = aceptado", r.json().get("estado") == "aceptado",
 r = requests.get(f"{BASE}/metricas/resumen/{pos['cuenta_id']}", headers=pos_h)
 m = r.json()
 check("metricas resumen", r.status_code == 200 and m["total_postulaciones"] == 1
-      and m["total_exitos"] == 1, r.text)
+      and m["total_entrevistas"] == 1 and m["total_exitos"] == 1, r.text)
 r = requests.get(f"{BASE}/metricas/logros/{pos['cuenta_id']}", headers=pos_h)
-check("logros incluyen Primera Aceptacion", r.status_code == 200 and any(
-    logro["nombre_logro"] == "Primera Aceptación"
-    for logro in r.json()), r.text)
+logros = {logro["nombre_logro"] for logro in r.json()}
+check(
+    "logros reflejan hitos alcanzados",
+    r.status_code == 200
+    and {"Primera postulación", "Primera entrevista"}.issubset(logros),
+    r.text,
+)
 
 # 14. Cuenta: PATCH y /me
 r = requests.patch(f"{BASE}/iam/cuenta/{pos['cuenta_id']}", headers=pos_h,

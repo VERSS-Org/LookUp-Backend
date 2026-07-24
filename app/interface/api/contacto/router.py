@@ -166,11 +166,17 @@ async def bandeja_de_mensajes(usuario: dict = Depends(obtener_usuario_actual)):
             contraparte_ids.add(
                 ultimo.cuenta_id if rol == "empresa" else ultimo.empresa_id
             )
+        contraparte_uuids = set()
+        for contraparte_id in contraparte_ids:
+            try:
+                contraparte_uuids.add(UUID(str(contraparte_id)))
+            except (TypeError, ValueError):
+                continue
         cuentas = {
             str(c.id): c
             for c in db.query(CuentaModel)
-            .filter(CuentaModel.id.in_(contraparte_ids)).all()
-        }
+            .filter(CuentaModel.id.in_(contraparte_uuids)).all()
+        } if contraparte_uuids else {}
 
         resultado = []
         for postulacion_id, hilo in hilos.items():

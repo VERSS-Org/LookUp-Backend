@@ -123,6 +123,8 @@ class PuestoResponse(BaseModel):
     fecha_publicacion: datetime
     fecha_cierre: Optional[datetime]
     estado: str
+    postulantes_total: Optional[int] = Field(default=None, ge=0)
+    postulantes_activos: Optional[int] = Field(default=None, ge=0)
     requisitos: List[RequisitoResponse]
 
 

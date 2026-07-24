@@ -8,7 +8,6 @@ import os
 # Agregar el directorio raíz al path de Python
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.main import app
+from app.main import app as app
 
 # Vercel automáticamente expone la app ASGI como "app"
-

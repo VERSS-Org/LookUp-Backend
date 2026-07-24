@@ -10,6 +10,7 @@ class MetricaResumenResponse(BaseModel):
     """
     cuenta_id: str
     total_postulaciones: int
+    total_en_revision: int
     total_entrevistas: int
     total_exitos: int
     total_rechazos: int
