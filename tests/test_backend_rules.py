@@ -417,6 +417,63 @@ def test_api_rechaza_freelance_al_crear_y_actualizar_vacantes():
     assert "freelance" in update_response.text
 
 
+def test_vacantes_de_empresa_exponen_conteos_sin_consultas_por_fila(monkeypatch):
+    Session = _sqlite_session(
+        [PostulacionModel.__table__, HitoModel.__table__]
+    )
+    monkeypatch.setattr(puesto_router, "SessionLocal", Session)
+    vacante_activa = uuid4()
+    vacante_sin_postulantes = uuid4()
+    estados = [
+        EstadoPostulacionEnum.PENDIENTE,
+        EstadoPostulacionEnum.EN_REVISION,
+        EstadoPostulacionEnum.ENTREVISTA,
+        EstadoPostulacionEnum.ACEPTADO,
+        EstadoPostulacionEnum.RECHAZADO,
+    ]
+    with Session() as db:
+        for estado in estados:
+            db.add(
+                PostulacionModel(
+                    postulacion_id=str(uuid4()),
+                    cuenta_id=str(uuid4()),
+                    puesto_id=str(vacante_activa),
+                    fecha_postulacion=datetime.now(),
+                    estado=estado,
+                    documentos_adjuntos=[],
+                )
+            )
+        db.commit()
+
+    respuestas = [
+        puesto_router._puesto_response(
+            {
+                "puesto_id": str(vacante_activa),
+                "empresa_id": str(uuid4()),
+                "titulo": "Backend",
+                "descripcion": "API",
+                "ubicacion": "Lima",
+            }
+        ),
+        puesto_router._puesto_response(
+            {
+                "puesto_id": str(vacante_sin_postulantes),
+                "empresa_id": str(uuid4()),
+                "titulo": "Frontend",
+                "descripcion": "Web",
+                "ubicacion": "Lima",
+            }
+        ),
+    ]
+
+    puesto_router._adjuntar_conteos_postulantes(respuestas)
+
+    assert respuestas[0].postulantes_total == 5
+    assert respuestas[0].postulantes_activos == 3
+    assert respuestas[1].postulantes_total == 0
+    assert respuestas[1].postulantes_activos == 0
+
+
 def test_regla_de_dominio_no_persiste_freelance_en_nuevas_escrituras():
     class Repositorio:
         def __init__(self):

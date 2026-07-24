@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Path, Query
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
+from sqlalchemy import case, func
 
 from app.application.puesto.command_handlers import (
     CrearPuestoHandler, CrearPuestoCommand, ActualizarPuestoHandler,
@@ -15,6 +16,7 @@ from app.domain.puesto.entities import (
     EstadoPuestoEnum as DomainEstadoPuestoEnum,
     TipoContratoEnum as DomainTipoContratoEnum
 )
+from app.domain.postulacion.entities import EstadoPostulacionEnum
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.iam.models import CuentaModel
 from app.infrastructure.postulacion.models import PostulacionModel
@@ -70,12 +72,19 @@ def _normalizar_requisitos(requisitos):
 
 def _empresas_info(empresa_ids: set) -> dict:
     """Nombre y foto de cada empresa, para mostrar en las vacantes."""
-    if not empresa_ids:
+    ids_validos = set()
+    for empresa_id in empresa_ids:
+        try:
+            ids_validos.add(UUID(str(empresa_id)))
+        except (TypeError, ValueError):
+            continue
+
+    if not ids_validos:
         return {}
     db = SessionLocal()
     try:
         cuentas = db.query(CuentaModel).filter(
-            CuentaModel.id.in_(empresa_ids)
+            CuentaModel.id.in_(ids_validos)
         ).all()
         return {
             str(c.id): {"nombre": c.nombre_completo, "foto": c.foto_url}
@@ -92,6 +101,48 @@ def _adjuntar_empresa(respuestas: list) -> list:
         if info:
             r.empresa_nombre = info["nombre"]
             r.empresa_foto = info["foto"]
+    return respuestas
+
+
+def _adjuntar_conteos_postulantes(respuestas: list) -> list:
+    """Agrega conteos por vacante en una sola consulta para el portal empresa."""
+    puesto_ids = [r.puesto_id for r in respuestas if r.puesto_id]
+    if not puesto_ids:
+        return respuestas
+
+    estados_activos = (
+        EstadoPostulacionEnum.PENDIENTE,
+        EstadoPostulacionEnum.EN_REVISION,
+        EstadoPostulacionEnum.ENTREVISTA,
+    )
+    db = SessionLocal()
+    try:
+        filas = (
+            db.query(
+                PostulacionModel.puesto_id,
+                func.count(PostulacionModel.id).label("total"),
+                func.count(
+                    case(
+                        (PostulacionModel.estado.in_(estados_activos), 1),
+                        else_=None,
+                    )
+                ).label("activos"),
+            )
+            .filter(PostulacionModel.puesto_id.in_(puesto_ids))
+            .group_by(PostulacionModel.puesto_id)
+            .all()
+        )
+    finally:
+        db.close()
+
+    conteos = {
+        str(fila.puesto_id): (int(fila.total or 0), int(fila.activos or 0))
+        for fila in filas
+    }
+    for respuesta in respuestas:
+        total, activos = conteos.get(respuesta.puesto_id, (0, 0))
+        respuesta.postulantes_total = total
+        respuesta.postulantes_activos = activos
     return respuestas
 
 
@@ -112,6 +163,8 @@ def _puesto_response(data: dict) -> PuestoResponse:
         ),
         fecha_cierre=_parse_datetime(data.get("fecha_cierre")),
         estado=data.get("estado", EstadoPuestoEnum.ABIERTO.value),
+        postulantes_total=data.get("postulantes_total"),
+        postulantes_activos=data.get("postulantes_activos"),
         requisitos=_normalizar_requisitos(data.get("requisitos", []))
     )
 
@@ -162,7 +215,7 @@ async def crear_puesto(
             requisitos=requisitos if requisitos else None
         )
         resultado = handler.handle(command)
-        return _puesto_response(resultado)
+        return _adjuntar_conteos_postulantes([_puesto_response(resultado)])[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -218,7 +271,10 @@ async def obtener_puesto(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Rol no autorizado para consultar vacantes",
             )
-        return _adjuntar_empresa([_puesto_response(resultado)])[0]
+        respuesta = _adjuntar_empresa([_puesto_response(resultado)])
+        if usuario.get("rol") == "empresa":
+            respuesta = _adjuntar_conteos_postulantes(respuesta)
+        return respuesta[0]
     except HTTPException:
         raise
     except Exception:
@@ -270,7 +326,10 @@ async def listar_puestos(
         respuestas = [
             _puesto_response(resultado) for resultado in handler.handle(query)
         ]
-        return _adjuntar_empresa(respuestas)
+        respuestas = _adjuntar_empresa(respuestas)
+        if usuario.get("rol") == "empresa":
+            respuestas = _adjuntar_conteos_postulantes(respuestas)
+        return respuestas
     except HTTPException:
         raise
     except Exception as e:
@@ -329,7 +388,7 @@ async def actualizar_puesto(
             requisitos=requisitos
         ))
 
-        return _puesto_response(resultado)
+        return _adjuntar_conteos_postulantes([_puesto_response(resultado)])[0]
     except HTTPException:
         raise
     except ValueError as e:
@@ -376,7 +435,9 @@ async def cambiar_estado_puesto(
             nuevo_estado=DomainEstadoPuestoEnum(estado_update.nuevo_estado.value)
         ))
 
-        return _puesto_response({**puesto_actual, **resultado})
+        return _adjuntar_conteos_postulantes(
+            [_puesto_response({**puesto_actual, **resultado})]
+        )[0]
     except HTTPException:
         raise
     except ValueError as e:

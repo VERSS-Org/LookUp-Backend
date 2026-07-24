@@ -12,6 +12,7 @@ class MetricaRegistro:
 
     cuenta_id: UUID
     total_postulaciones: int = 0
+    total_en_revision: int = 0
     total_entrevistas: int = 0
     total_exitos: int = 0
     total_rechazos: int = 0

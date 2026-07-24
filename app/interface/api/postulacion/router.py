@@ -232,12 +232,18 @@ async def eventos_recientes(usuario: dict = Depends(obtener_usuario_actual)):
             titulos = _titulos_de_puestos(
                 db, {p.puesto_id for p in postulaciones}
             )
+            candidato_ids = set()
+            for postulacion in postulaciones:
+                try:
+                    candidato_ids.add(UUID(str(postulacion.cuenta_id)))
+                except (TypeError, ValueError):
+                    continue
             candidatos = {
                 str(c.id): c.nombre_completo
                 for c in db.query(CuentaModel).filter(
-                    CuentaModel.id.in_({p.cuenta_id for p in postulaciones})
+                    CuentaModel.id.in_(candidato_ids)
                 ).all()
-            } if postulaciones else {}
+            } if candidato_ids else {}
             for postulacion in postulaciones:
                 nombre = candidatos.get(postulacion.cuenta_id, "Un postulante")
                 eventos.append({

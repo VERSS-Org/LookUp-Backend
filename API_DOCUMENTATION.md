@@ -874,7 +874,17 @@ that minimum or maximum limit.
 
 Base URL: `/api/contacto`
 
-**Note**: Most contact endpoints are temporarily disabled (501 Not Implemented). Only feedback endpoint is available.
+Las conversaciones se agrupan por `postulacion_id`; esto evita mezclar dos
+procesos distintos con la misma empresa o el mismo postulante.
+
+Rutas disponibles:
+
+- `GET /contacto/bandeja`: lista una entrada por conversación.
+- `GET /contacto/?postulacion_id={id}`: obtiene los mensajes del proceso.
+- `GET /contacto/{contacto_id}`: obtiene un mensaje concreto.
+- `POST /contacto/mensaje`: envía un mensaje en el hilo.
+- `POST /contacto/marcar-leidos`: marca como leídos los mensajes recibidos.
+- `POST /contacto/feedback`: registra feedback formal de la empresa.
 
 ### 1. Send Feedback
 
@@ -918,19 +928,6 @@ Base URL: `/api/contacto`
 
 ---
 
-### Disabled Endpoints (501 Not Implemented)
-
-The following endpoints are currently disabled:
-
-- `POST /contacto/` - Create contact
-- `GET /contacto/{contacto_id}` - Get contact
-- `GET /contacto/` - List contacts
-- `PATCH /contacto/{contacto_id}` - Update contact
-- `PATCH /contacto/{contacto_id}/leido` - Mark contact as read
-- `GET /contacto/feedback/{feedback_id}` - Get feedback
-
----
-
 ## Métricas (Metrics) Endpoints
 
 Base URL: `/api/metricas`
@@ -949,6 +946,7 @@ Base URL: `/api/metricas`
 {
   "cuenta_id": "550e8400-e29b-41d4-a716-446655440000",
   "total_postulaciones": 15,
+  "total_en_revision": 7,
   "total_entrevistas": 3,
   "total_exitos": 2,
   "total_rechazos": 10,
@@ -956,8 +954,10 @@ Base URL: `/api/metricas`
 }
 ```
 
+`total_en_revision` y `total_entrevistas` representan procesos que alcanzaron
+esas etapas, aunque despues hayan avanzado a un estado terminal.
+
 **Error Responses**:
-- `404 Not Found`: No metrics found for the account
 - `500 Internal Server Error`: Error calculating metrics
 
 ---
@@ -975,19 +975,22 @@ Base URL: `/api/metricas`
 ```json
 [
   {
-    "id_logro": "logro_001",
-    "nombre_logro": "Primer Éxito",
+    "id_logro": "53c77b9e-b23e-5cd9-8ae8-f7e7db1f197f",
+    "nombre_logro": "Primera postulación",
     "umbral": 1,
-    "fecha_obtencion": "2025-11-30T14:30:00"
+    "fecha_obtencion": "2026-07-02T09:00:00"
   },
   {
-    "id_logro": "logro_005",
-    "nombre_logro": "Cinco Postulaciones",
+    "id_logro": "ea7d4500-397a-54b1-a2e0-33a2ce972655",
+    "nombre_logro": "5 postulaciones enviadas",
     "umbral": 5,
-    "fecha_obtencion": "2025-11-25T10:15:00"
+    "fecha_obtencion": "2026-07-09T12:00:00"
   }
 ]
 ```
+
+Los identificadores y fechas de los logros son estables y se derivan del
+historial real de postulaciones.
 
 **Error Responses**:
 - `500 Internal Server Error`: Error retrieving achievements
@@ -1008,6 +1011,7 @@ Base URL: `/api/metricas`
 {
   "cuenta_id": "550e8400-e29b-41d4-a716-446655440000",
   "total_postulaciones": 15,
+  "total_en_revision": 7,
   "total_entrevistas": 3,
   "total_exitos": 2,
   "total_rechazos": 10,

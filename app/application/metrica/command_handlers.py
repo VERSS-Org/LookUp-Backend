@@ -25,6 +25,7 @@ class RecalcularMetricasHandler(CommandHandler):
             return {
                 "cuenta_id": str(command.cuenta_id),
                 "total_postulaciones": 0,
+                "total_en_revision": 0,
                 "total_entrevistas": 0,
                 "total_exitos": 0,
                 "total_rechazos": 0,
@@ -35,6 +36,7 @@ class RecalcularMetricasHandler(CommandHandler):
         return {
             "cuenta_id": str(registro.cuenta_id),
             "total_postulaciones": registro.total_postulaciones,
+            "total_en_revision": registro.total_en_revision,
             "total_entrevistas": registro.total_entrevistas,
             "total_exitos": registro.total_exitos,
             "total_rechazos": registro.total_rechazos,

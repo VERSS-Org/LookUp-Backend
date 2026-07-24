@@ -37,6 +37,7 @@ class ConsultarResumenMetricasHandler(QueryHandler):
         return {
             "cuenta_id": str(metrica_aggregate.metrica_registro.cuenta_id),
             "total_postulaciones": metrica_aggregate.metrica_registro.total_postulaciones,
+            "total_en_revision": metrica_aggregate.metrica_registro.total_en_revision,
             "total_entrevistas": metrica_aggregate.metrica_registro.total_entrevistas,
             "total_exitos": metrica_aggregate.metrica_registro.total_exitos,
             "total_rechazos": metrica_aggregate.metrica_registro.total_rechazos,
@@ -136,8 +137,8 @@ class ContadorEntrevistasQueryHandler(QueryHandler):
         """
         Maneja la consulta del contador de entrevistas
         
-        Nota: El contador se calcula en tiempo real contando las postulaciones
-        que actualmente tienen estado 'entrevista' en lugar de recuperar un valor almacenado.
+        El contador representa procesos que alcanzaron la etapa de entrevista,
+        aunque luego hayan terminado en aceptado o rechazado.
         """
         metrica = self.metrica_repository.obtener_por_postulante(
             query.postulante_id
